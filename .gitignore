@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+# Data is generated/collected, not committed. The rosbag is the source of truth but
+# lives on the collection box / wherever you archive it — not in this repo.
+data/raw/*
+data/aligned/*
+data/dataset/*
+!data/raw/.gitkeep
+!data/aligned/.gitkeep
+!data/dataset/.gitkeep
+
+# discover.sh output is machine-specific, regenerate on the box
+DISCOVERY.generated.md

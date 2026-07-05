@@ -1,0 +1,66 @@
+# Offline preprocessing parameters. Everything here is re-runnable against the raw bags,
+# which are the immutable source of truth.
+
+# --- Resampling grid -------------------------------------------------------------------
+# Single common grid all streams are resampled onto. Below both native rates
+# (joint_states ~125 Hz, controller_state ~87 Hz) so every grid point is interpolated,
+# not extrapolated. Confirm/adjust after discover.sh reports measured rates.
+dataset_rate: 100          # Hz
+max_gap_ms: 50             # drop any grid segment whose nearest source sample is > this away
+
+# --- Interpolation per signal family (used by align.py) --------------------------------
+# WHY THIS EXISTS: the streams arrive at different, jittery rates (joint_states ~125 Hz,
+# controller state ~87 Hz) with independent timestamps. To stack them into one frame we
+# resample every signal onto ONE shared grid at `dataset_rate`. "How do we read a signal's
+# value at a grid time that falls BETWEEN two real samples?" -> that's what `interp` sets,
+# per signal, so each is reconstructed faithfully to its physical nature:
+#
+#   zoh (zero-order hold): value = the last sample at or before the grid time; held as a
+#        flat step until the next update. Correct for COMMANDS — set_point/PWM don't glide
+#        between updates, they jump and hold. Linear-interpolating them would invent a ramp
+#        that never happened and smear the exact instant a new target was issued.
+#
+#   linear: straight-line blend between the two neighbouring samples. Correct for MEASURED,
+#        physically-continuous signals (positions, velocities, efforts) that really do move
+#        smoothly between samples; gives a better mid-point estimate than a stale step.
+#
+# Rule of thumb: hold what was commanded (zoh), interpolate what was measured (linear).
+interp:
+  set_point: zoh           # commanded target — held between updates (a step, not a ramp)
+  command: zoh             # PWM output — held
+  process_value: linear    # measured joint position — continuous
+  process_value_dot: linear
+  error: linear
+  joint_position: linear   # /joint_states.position
+  joint_velocity: linear
+  joint_effort: linear
+
+# --- Frame stacking --------------------------------------------------------------------
+stack_len: 4               # frames per input sample
+stack_stride: 1            # 1 = consecutive frames; k = every k-th grid step
+# Frame t occupies the LAST 52 elements of X; oldest (t - (stack_len-1)*stride) is first.
+
+# --- Target ----------------------------------------------------------------------------
+# Y is the 16 ground-truth joint positions at frame (t + target_horizon).
+#   0 = same-step regression (state estimator)
+#   1 = next-step prediction (forward / actuator model)  <-- default
+target_horizon: 1
+
+# --- Splitting & normalization ---------------------------------------------------------
+# Split is BY EPISODE (never by frame) to avoid temporal leakage.
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 0
+normalize_on: train        # scaler stats computed on train episodes only
+
+# --- Output ----------------------------------------------------------------------------
+# hdf5 (needs h5py) or npz (numpy only). build_dataset.py falls back to npz automatically
+# if h5py is unavailable, and warns.
+output_format: hdf5
+
+# Extra context columns to carry into aligned tables / dataset (excluded from X/Y).
+keep_context:
+  joint_effort: true       # /joint_states.effort (16)
+  controller_command: true # controller .command / PWM (13)

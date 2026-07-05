@@ -1,0 +1,95 @@
+# Canonical joint/actuator definitions for the Shadow Hand Lite (rh_).
+# PRE-FILLED from live-box discovery (see DISCOVERY.md). Code MUST still assert these
+# names against the live /joint_states + controller topics at runtime — never trust the
+# file blindly.
+
+# 16 outputs. MUST match the /joint_states array order exactly (index = array position).
+joint_order:
+  - rh_FFJ1
+  - rh_FFJ2
+  - rh_FFJ3
+  - rh_FFJ4
+  - rh_MFJ1
+  - rh_MFJ2
+  - rh_MFJ3
+  - rh_MFJ4
+  - rh_RFJ1
+  - rh_RFJ2
+  - rh_RFJ3
+  - rh_RFJ4
+  - rh_THJ1
+  - rh_THJ2
+  - rh_THJ4
+  - rh_THJ5
+
+# 13 inputs. Canonical actuator order used EVERYWHERE (frame feature order, columns, etc.).
+actuator_order:
+  - rh_FFJ0
+  - rh_FFJ3
+  - rh_FFJ4
+  - rh_MFJ0
+  - rh_MFJ3
+  - rh_MFJ4
+  - rh_RFJ0
+  - rh_RFJ3
+  - rh_RFJ4
+  - rh_THJ1
+  - rh_THJ2
+  - rh_THJ4
+  - rh_THJ5
+
+# J0 actuators -> the summed joint pair. The driver already reports the sum in the
+# controller's process_value; this mapping is used for QC cross-checks and to know which
+# joint_states entries a J0 actuator corresponds to.
+coupling:
+  rh_FFJ0: [rh_FFJ1, rh_FFJ2]
+  rh_MFJ0: [rh_MFJ1, rh_MFJ2]
+  rh_RFJ0: [rh_RFJ1, rh_RFJ2]
+# Every actuator NOT listed under `coupling` is 1:1 with the identically-named joint
+# (rh_FFJ3 actuator <-> rh_FFJ3 joint, etc.).
+
+# =============================================================================
+# POLICY FRAME  — makes the actuator-net input identical to the RL policy's
+# observation (get_proprioception in my_policy_node_old.py). The 52-feature frame
+# is built in THIS order/space, NOT in actuator_order:
+#   [ pos_norm(13) | vel_norm(13) | err(13, radians) | action(13) ]
+# All 13-vectors are in policy_joint_order. pos/vel/action are normalised to [-1,1]
+# by the limits below; err stays in raw radians (matching the policy).
+# J0 is left "as is" (summed process_value / set_point, NO x2) — the network learns
+# the coupling from summed-actuator input -> 16 individual joint outputs.
+# =============================================================================
+
+# 13 joints in the order the policy expects. The three coupled fingers are represented
+# by their J2 joint (the controller in sim); on hardware that data comes from the J0
+# actuator (see policy_to_actuator). J1 is dropped (it physically mimics J2).
+policy_joint_order:
+  - rh_FFJ4    # 0
+  - rh_MFJ4    # 1
+  - rh_RFJ4    # 2
+  - rh_THJ5    # 3
+  - rh_FFJ3    # 4
+  - rh_MFJ3    # 5
+  - rh_RFJ3    # 6
+  - rh_THJ4    # 7
+  - rh_FFJ2    # 8   <- fed from the rh_FFJ0 actuator (summed), see policy_to_actuator
+  - rh_MFJ2    # 9   <- from rh_MFJ0
+  - rh_RFJ2    # 10  <- from rh_RFJ0
+  - rh_THJ2    # 11
+  - rh_THJ1    # 12
+
+# Which actuator supplies each coupled policy joint. Everything else maps name-for-name.
+policy_to_actuator:
+  rh_FFJ2: rh_FFJ0
+  rh_MFJ2: rh_MFJ0
+  rh_RFJ2: rh_RFJ0
+
+# Joint limits in policy_joint_order (radians). MUST match the IsaacLab training config
+# (copied from LOWER_LIMITS / UPPER_LIMITS / VEL_LIMITS_NORM in my_policy_node_old.py).
+# Used to normalise pos (by lower/upper), vel (by +/-vel) and action (by lower/upper).
+limits:
+  lower: [-0.3491, -0.3491, -0.3491, -1.0472, -0.2618, -0.2618, -0.2618,
+           0.0,     0.0,     0.0,     0.0,    -0.6981, -0.2618]
+  upper: [ 0.3491,  0.3491,  0.3491,  1.0472,  1.5708,  1.5708,  1.5708,
+           1.2217,  1.745,   1.745,   1.745,   0.6981,  1.5708]
+  vel:   [ 2.0,     2.0,     2.0,     4.0,     2.0,     2.0,     2.0,
+           4.0,     2.0,     2.0,     2.0,     2.0,     4.0]

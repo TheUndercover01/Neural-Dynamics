@@ -1,0 +1,33 @@
+# Topics to record and parse. Controller-state names are derived from actuator_order:
+#   rh_FFJ0 -> /sh_rh_ffj0_position_controller/state   (lowercase, sh_ prefix)
+# Kept explicit here so record_episode.sh can pass a literal list to `rosbag record`
+# and so parse_bag.py can validate presence.
+
+# Ground-truth joint positions (the 16 outputs). sensor_msgs/JointState.
+joint_states: /joint_states
+
+# Per-actuator controller state (the 13 inputs). control_msgs/JointControllerState.
+controller_state:
+  - /sh_rh_ffj0_position_controller/state
+  - /sh_rh_ffj3_position_controller/state
+  - /sh_rh_ffj4_position_controller/state
+  - /sh_rh_mfj0_position_controller/state
+  - /sh_rh_mfj3_position_controller/state
+  - /sh_rh_mfj4_position_controller/state
+  - /sh_rh_rfj0_position_controller/state
+  - /sh_rh_rfj3_position_controller/state
+  - /sh_rh_rfj4_position_controller/state
+  - /sh_rh_thj1_position_controller/state
+  - /sh_rh_thj2_position_controller/state
+  - /sh_rh_thj4_position_controller/state
+  - /sh_rh_thj5_position_controller/state
+
+# Context topics: RECORDED for later use, EXCLUDED from the 208-dim input.
+# /diagnostics carries per-motor temperature/current (~2 Hz).
+context:
+  - /diagnostics
+
+expected_rates_hz:      # informational; discover.sh refreshes from the live box
+  joint_states: 125
+  controller_state: 87
+  diagnostics: 2
