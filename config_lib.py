@@ -89,6 +89,10 @@ def load_pipeline() -> dict:
     return _load_yaml(CONFIG_DIR / "pipeline.yaml")
 
 
+def load_latency() -> dict:
+    return _load_yaml(CONFIG_DIR / "latency.yaml")
+
+
 def controller_state_topic(actuator: str) -> str:
     """rh_FFJ0 -> /sh_rh_ffj0_position_controller/state (lowercase)."""
     return f"/sh_{actuator.lower()}_position_controller/state"

@@ -1,0 +1,26 @@
+# Params for diagnostics/latency_timeconstant.py — actuation/sensing delay and
+# time-constant/settling measurement from step-response data.
+#
+# dataset_rate here is a DEFAULT/EXPECTED value used only to sanity-check against
+# the rate actually stored in the aligned .npz being analyzed (align.py stamps the
+# real value it resampled to). The script always uses the data's own rate for its
+# frame<->ms math; it warns if the data's rate differs from this expectation.
+dataset_rate: 60
+
+# Minimum |delta set_point| between consecutive grid frames to count as a step (rad).
+step_thresh: 0.05
+
+# Commanded value must hold within a small band for at least this many frames
+# after the jump for it to count as a clean step (rejects ramps/noisy commands).
+hold_frames: 20
+
+# Frames of response captured after each step for delay/tau/settling measurement.
+response_window: 30
+
+# Fraction of |step_magnitude| the measured signal must move past pre-step value
+# to be considered "started moving" (defines motion_start / delay).
+move_thresh: 0.02
+
+# Current actuator-net history window (frames), for the floor comparison in step 7.
+current_obs_frames: 4
+current_action_frames: 5

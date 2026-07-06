@@ -2,10 +2,13 @@
 # which are the immutable source of truth.
 
 # --- Resampling grid -------------------------------------------------------------------
-# Single common grid all streams are resampled onto. Below both native rates
-# (joint_states ~125 Hz, controller_state ~87 Hz) so every grid point is interpolated,
-# not extrapolated. Confirm/adjust after discover.sh reports measured rates.
-dataset_rate: 100          # Hz
+# Single common grid all streams are resampled onto. Set to match the deployed RL
+# policy's control rate (60 Hz on both hardware and in sim) — the actuator net's input
+# must be sampled at the same rate the policy actually runs at, not an arbitrary rate
+# below the native topic rates. 60 Hz is also comfortably below both native rates
+# (joint_states ~125 Hz, controller_state ~87 Hz), so every grid point still lands
+# within real bracketing samples (interpolated, not extrapolated).
+dataset_rate: 60          # Hz — must match policy control rate (hw + sim)
 max_gap_ms: 50             # drop any grid segment whose nearest source sample is > this away
 
 # --- Interpolation per signal family (used by align.py) --------------------------------

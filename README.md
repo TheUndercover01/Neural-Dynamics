@@ -60,7 +60,7 @@ python3 qc/report.py data/aligned/2026_07_02_am/ep001_*.aligned.npz
 ## Key config knobs (`config/pipeline.yaml`)
 | key | default | note |
 |-----|---------|------|
-| `dataset_rate` | 100 Hz | common resample grid (below both native rates) |
+| `dataset_rate` | 60 Hz | matches the deployed policy's control rate (hw + sim); also below both native rates |
 | `stack_len` / `stack_stride` | 4 / 1 | frames per sample; 1 = consecutive |
 | `target_horizon` | 1 | Y at t+1 (forward model); set 0 for same-step |
 | `max_gap_ms` | 50 | grid points farther than this from data are dropped |

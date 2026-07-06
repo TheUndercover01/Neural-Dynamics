@@ -70,4 +70,6 @@ from the current container: the `/joint_states` publisher is reachable (a single
 `rostopic echo -n1` succeeded) but subscriptions to the controller-state publishers hang
 (publisher advertises a host URI this container cannot route to). **Re-run
 `scripts/discover.sh` from a node on the hand's own network** to fill in measured rates.
-Until then configs use the prior-session values (125 / 87 Hz) and `dataset_rate: 100`.
+Until then configs use the prior-session values (125 / 87 Hz) for the native topic rates.
+`dataset_rate: 60` is fixed independently of those — it matches the deployed policy's
+control rate (hw + sim), not a value derived from the native topic rates.

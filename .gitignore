@@ -12,3 +12,6 @@ data/dataset/*
 
 # discover.sh output is machine-specific, regenerate on the box
 DISCOVERY.generated.md
+
+# diagnostics/latency_timeconstant.py output — regenerable from data/aligned/*.aligned.npz
+outputs/
