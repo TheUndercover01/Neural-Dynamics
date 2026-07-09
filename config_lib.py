@@ -44,6 +44,9 @@ def load_joints() -> dict:
         f"expected {N_ACTUATORS}")
     for k in ("lower", "upper", "vel"):
         assert len(d["limits"][k]) == N_ACTUATORS, f"limits.{k} must have {N_ACTUATORS} entries"
+    for k in ("lower", "upper"):
+        assert len(d["command_limits"][k]) == N_ACTUATORS, (
+            f"command_limits.{k} must have {N_ACTUATORS} entries")
     return d
 
 
@@ -79,6 +82,19 @@ def policy_limits(joints: dict | None = None):
     return (np.asarray(lim["lower"], float),
             np.asarray(lim["upper"], float),
             np.asarray(lim["vel"], float))
+
+
+def command_limits(joints: dict | None = None):
+    """(lower[13], upper[13]) arrays in actuator_order — the raw /command bounds.
+
+    NOT the same as policy_limits(): this is the physical controller command range
+    (FFJ0/MFJ0/RFJ0 = 0..pi, the summed J1+J2 range), used for clipping generated
+    trajectories before publish. policy_limits() is for offline normalization only.
+    """
+    import numpy as np
+    joints = joints or load_joints()
+    cmd = joints["command_limits"]
+    return np.asarray(cmd["lower"], float), np.asarray(cmd["upper"], float)
 
 
 def load_topics() -> dict:

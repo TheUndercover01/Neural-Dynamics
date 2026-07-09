@@ -93,3 +93,20 @@ limits:
            1.2217,  1.745,   1.745,   1.745,   0.6981,  1.5708]
   vel:   [ 2.0,     2.0,     2.0,     4.0,     2.0,     2.0,     2.0,
            4.0,     2.0,     2.0,     2.0,     2.0,     4.0]
+
+# =============================================================================
+# COMMAND limits — the physical /command bounds in ACTUATOR ORDER (radians),
+# published RAW to /sh_rh_<act>_position_controller/command. This is NOT the
+# `limits:` block above — that is a POLICY-order OFFLINE NORMALIZATION table
+# whose coupled upper (1.745) is a scale constant, not a physical bound. Never
+# derive command clipping from `limits:`, and never edit `limits:` to "fix" this
+# (every existing dataset was normalized against it).
+#
+# Values are ground truth from sr_description's URDF (per-joint <limit>) and the
+# MuJoCo sr_hand_e_options.xml ctrlrange for the J0 tendon actuators. FFJ0/MFJ0/
+# RFJ0 are 0..pi because the J0 actuator commands the SUM of its J1+J2 pair,
+# each individually 0..pi/2 (0 .. 3.1416 = pi).
+# Order matches actuator_order above: FFJ0,FFJ3,FFJ4,MFJ0,MFJ3,MFJ4,RFJ0,RFJ3,RFJ4,THJ1,THJ2,THJ4,THJ5
+command_limits:
+  lower: [ 0.0,    -0.2618, -0.3491,  0.0,    -0.2618, -0.3491,  0.0,    -0.2618, -0.3491, -0.2618, -0.6981,  0.0,    -1.0472]
+  upper: [ 3.1416,  1.5708,  0.3491,  3.1416,  1.5708,  0.3491,  3.1416,  1.5708,  0.3491,  1.5708,  0.6981,  1.2217,  1.0472]
