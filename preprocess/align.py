@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Resample every stream from one bag onto a single uniform grid at dataset_rate.
 
-    align.py BAG [--out DIR]        # writes <episode>.aligned.npz + .json sidecar
+    align.py BAG [--out DIR]        # writes <episode>.aligned.npz, merges QC into
+                                     # meta/<session>/<episode>.json (the same sidecar
+                                     # record_episode.sh/run_episode.py already wrote)
 
 Aligned table columns (all on the same grid, actuator/joint canonical order):
     t         [T]
@@ -152,16 +154,30 @@ def main() -> int:
 
     n_valid = int(aligned["valid"].sum())
     n_seg = int(aligned["seg_id"].max()) + 1 if (aligned["seg_id"] >= 0).any() else 0
-    sidecar = {
-        "bag": str(bag), "aligned_npz": str(npz),
+    aligned_info = {
         "dataset_rate": aligned["dataset_rate"],
         "n_grid": int(aligned["t"].size), "n_valid": n_valid, "n_segments": n_seg,
         "parse_report": parsed["report"],
     }
-    with open(outdir / f"{stem}.aligned.json", "w") as f:
-        json.dump(sidecar, f, indent=2, default=float)
+
+    # Merge into the SAME meta/<session>/<stem>.json that record_episode.sh/
+    # run_episode.py wrote at collection time, rather than writing a separate sidecar --
+    # one JSON per episode ends up describing everything about it (config + QC).
+    meta_dir = cl.REPO_ROOT / "meta" / session
+    meta_path = meta_dir / f"{stem}.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text())
+    else:
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta = {"bag": str(bag)}
+        print(f"NOTE: no existing {meta_path} (pre-meta/-layout session?) -- creating "
+              f"one with align-only fields.", file=sys.stderr)
+    meta["aligned_npz"] = str(npz)
+    meta["aligned"] = aligned_info
+    meta_path.write_text(json.dumps(meta, indent=2, default=float))
 
     print(f"wrote {npz}  (grid={aligned['t'].size}, valid={n_valid}, segments={n_seg})")
+    print(f"updated {meta_path}")
     return 0
 
 

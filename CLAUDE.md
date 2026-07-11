@@ -26,6 +26,13 @@ observation space. **The rosbag is the immutable source of truth** — every der
 under `data/aligned/` and `data/dataset/` is disposable and re-runnable from `data/raw/*.bag`.
 If you change a config, delete and regenerate downstream data rather than patching it.
 
+Per-episode config/QC metadata lives in ONE JSON per episode under `meta/<session>/`
+(not next to the bag) — `record_episode.sh`/`run_episode.py` write it at collection time
+(regime, families, seeds, `max_delta_rad`, `step_events`, jitter/overruns, operator notes),
+`align.py` later merges an `"aligned"` QC section into that same file. `data/raw/` and
+`data/aligned/` hold only binaries (`.bag`, `.aligned.npz`); `meta/` is small and git-tracked
+(unlike `data/`, which is gitignored) so it transfers with a plain `git pull`.
+
 The excitation/motion-generation node and the actuator-net training code both live outside
 this repo; this repo's job stops at producing datasets + `scaler.json`.
 
@@ -43,12 +50,13 @@ source /opt/ros/noetic/setup.bash        # only needed for collection-stage scri
 # --- Collection (on the robot box, live ROS master) ---
 scripts/discover.sh                                    # -> DISCOVERY.generated.md
 python3 scripts/check_stream.py                        # preflight; DURATION=<sec> env override
-scripts/record_episode.sh SESSION_ID EPISODE_ID [SEC]  # -> data/raw/<session>/*.bag + meta.yaml
+scripts/record_episode.sh SESSION_ID EPISODE_ID [SEC]  # -> data/raw/<session>/*.bag + meta/<session>/*.json
                                                          # env: EXCITATION=, CONTROL_MODE=, WARMUP=, DRIVER_VERSION=, OPERATOR=
 
 # --- Offline preprocessing (no ROS required) ---
 python3 preprocess/parse_bag.py data/raw/<session>/*.bag        # prints rate/drop/jitter QC, no output file
-python3 preprocess/align.py data/raw/<session>/<ep>.bag         # -> data/aligned/<session>/<ep>.aligned.npz(+.json)
+python3 preprocess/align.py data/raw/<session>/<ep>.bag         # -> data/aligned/<session>/<ep>.aligned.npz,
+                                                                 #    merges "aligned" QC into meta/<session>/<ep>.json
 python3 preprocess/build_dataset.py [ALIGNED_NPZ ...]           # -> data/dataset/<session>/<ep>.h5(or .npz) + manifest.json
 python3 preprocess/normalize.py                                 # -> data/dataset/scaler.json (train-episode stats only)
 

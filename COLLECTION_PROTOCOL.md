@@ -33,7 +33,9 @@ EXCITATION=free_space DRIVER_VERSION=$(rosversion sr_ronex 2>/dev/null || echo l
   scripts/record_episode.sh 2026_07_02_am ep001 60
 ```
 - Native rates, **no downsampling at record time**. The bag is the source of truth.
-- One bag per episode → `data/raw/<session>/<episode>_<ts>.bag` + `.meta.yaml` sidecar.
+- One bag per episode → `data/raw/<session>/<episode>_<ts>.bag` + a JSON sidecar at
+  `meta/<session>/<episode>_<ts>.json` (kept in a separate, git-tracked `meta/` tree —
+  not next to the bag — so it transfers with a plain `git pull` even when the bags don't).
 - Fixed episode length (default 60 s). Keep sessions consistent.
 
 ### Excitation regimes to cover (`EXCITATION=`)
@@ -48,16 +50,19 @@ Record the object / perturbation details in `OPERATOR="..."`.
 ## 3. Offline processing (re-runnable, never touches the bags)
 ```bash
 python3 preprocess/parse_bag.py data/raw/<session>/*.bag        # QC: rates/drops/jitter
-python3 preprocess/align.py      data/raw/<session>/<ep>.bag    # -> data/aligned/...
+python3 preprocess/align.py      data/raw/<session>/<ep>.bag    # -> data/aligned/..., merges QC
+                                                                 #    into meta/<session>/<ep>.json
 python3 preprocess/build_dataset.py                            # -> data/dataset/... + manifest
 python3 preprocess/normalize.py                                # -> scaler.json (train-only)
 python3 qc/report.py     data/aligned/<session>/<ep>.aligned.npz
 python3 qc/loader_test.py                                      # contract test
 ```
 
-## Metadata captured per episode (`meta.yaml`)
+## Metadata captured per episode (`meta/<session>/<episode>.json`)
 date/timestamp, excitation type, control mode (PWM/Torque), warm-up state, driver version,
-operator notes, recorded topic list, `ROS_MASTER_URI`.
+operator notes, recorded topic list, `ROS_MASTER_URI` -- plus, once `run_episode.py` records
+it, regime/families/seeds/`max_delta_rad`/`step_events`/jitter, and once `align.py` runs,
+an `"aligned"` section with resampling QC. One file, everything about that episode.
 
 ## Do / Don't
 - **Do** re-run pre-flight after any controller restart or e-stop.

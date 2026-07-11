@@ -115,7 +115,7 @@ def compose_episode(regime: str, families: list[str], weights: dict, *, rng_seed
       step_events list of {frame, actuator_idx, pre, post, magnitude} — ground truth
                   from the `steps` family only (empty if `steps` not in `families`).
       info        dict: family_seeds, channel allocation, max_delta used, and
-                  per-channel delta max/p95 (meta.yaml provenance — lets you filter
+                  per-channel delta max/p95 (meta/ JSON provenance — lets you filter
                   to a real max_delta scale later without recollecting).
     """
     rate = rate or ecfg.PUBLISH_RATE_HZ

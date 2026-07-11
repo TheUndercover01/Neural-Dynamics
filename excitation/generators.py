@@ -264,7 +264,7 @@ def steps(duration_s, joint_limits, rng_seed, *, rate=None, channels=None,
 def step_schedule(duration_s, joint_limits, rng_seed, *, rate=None, channels=None,
                    hold_s_range=None, magnitude_frac_range=None):
     """Exact step events matching steps()'s jumps: list of dicts with frame, actuator_idx
-    (index into actuator_order), pre, post, magnitude. Ground truth for meta.yaml and for
+    (index into actuator_order), pre, post, magnitude. Ground truth for the meta/ JSON sidecar and for
     the offline test that checks detect_steps() recovers exactly these events."""
     rate = rate or ecfg.PUBLISH_RATE_HZ
     lower, upper = _unpack_limits(joint_limits)

@@ -16,27 +16,22 @@ max_gap_ms: 50             # drop any grid segment whose nearest source sample i
 # controller state ~87 Hz) with independent timestamps. To stack them into one frame we
 # resample every signal onto ONE shared grid at `dataset_rate`. "How do we read a signal's
 # value at a grid time that falls BETWEEN two real samples?" -> that's what `interp` sets,
-# per signal, so each is reconstructed faithfully to its physical nature:
+# per signal. _resample() in align.py also supports "linear"/"nearest" if a future dataset
+# strategy wants them for measured (physically-continuous) signals instead.
 #
 #   zoh (zero-order hold): value = the last sample at or before the grid time; held as a
-#        flat step until the next update. Correct for COMMANDS — set_point/PWM don't glide
-#        between updates, they jump and hold. Linear-interpolating them would invent a ramp
-#        that never happened and smear the exact instant a new target was issued.
-#
-#   linear: straight-line blend between the two neighbouring samples. Correct for MEASURED,
-#        physically-continuous signals (positions, velocities, efforts) that really do move
-#        smoothly between samples; gives a better mid-point estimate than a stale step.
-#
-# Rule of thumb: hold what was commanded (zoh), interpolate what was measured (linear).
+#        flat step until the next update. Applied to every signal by operator choice, so
+#        every column is reconstructed the same way -- no per-signal reconstruction
+#        assumptions baked into the aligned arrays.
 interp:
-  set_point: zoh           # commanded target — held between updates (a step, not a ramp)
-  command: zoh             # PWM output — held
-  process_value: linear    # measured joint position — continuous
-  process_value_dot: linear
-  error: linear
-  joint_position: linear   # /joint_states.position
-  joint_velocity: linear
-  joint_effort: linear
+  set_point: zoh
+  command: zoh
+  process_value: zoh
+  process_value_dot: zoh
+  error: zoh
+  joint_position: zoh
+  joint_velocity: zoh
+  joint_effort: zoh
 
 # --- Frame stacking --------------------------------------------------------------------
 stack_len: 4               # frames per input sample

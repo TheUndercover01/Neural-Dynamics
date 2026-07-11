@@ -8,7 +8,14 @@
 dataset_rate: 60
 
 # Minimum |delta set_point| between consecutive grid frames to count as a step (rad).
-step_thresh: 0.05
+# Raised 0.05 -> 0.1 to allow faster continuous excitation (see excitation/config.py's
+# CONTINUOUS_SLEW_FRAC/MAX_DELTA_RANGE) while staying self-consistent with
+# generators.py's step-magnitude sizing. NOTE: this also raises the bar for
+# diagnostics/latency_timeconstant.py's detect_steps() on ANY data analyzed after this
+# change (including older send_step.py-collected episodes) -- a genuine step sized
+# 0.05-0.1 rad would no longer register. excitation/send_step.py's MIN_STEP_RAD mirrors
+# this value; keep them in sync.
+step_thresh: 0.1
 
 # Commanded value must hold within a small band for at least this many frames
 # after the jump for it to count as a clean step (rejects ramps/noisy commands).

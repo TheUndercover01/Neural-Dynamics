@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Record ONE episode to an immutable bag + sidecar meta.yaml.
-# Records native rates, no downsampling. The bag is the source of truth.
+# Record ONE episode to an immutable bag (data/raw/) + sidecar JSON (meta/). The bag is
+# the source of truth for signals; the JSON sidecar is the source of truth for what was
+# run. Records native rates, no downsampling.
 #
 # Usage:
 #   scripts/record_episode.sh SESSION_ID EPISODE_ID [DURATION_SEC]
@@ -27,10 +28,11 @@ source /opt/ros/noetic/setup.bash 2>/dev/null || true
 
 TS="$(date +%Y%m%d_%H%M%S)"
 OUTDIR="$REPO/data/raw/$SESSION_ID"
-mkdir -p "$OUTDIR"
-PREFIX="$OUTDIR/${EPISODE_ID}_${TS}"
-BAG="${PREFIX}.bag"
-META="${PREFIX}.meta.yaml"
+META_DIR="$REPO/meta/$SESSION_ID"
+mkdir -p "$OUTDIR" "$META_DIR"
+STEM="${EPISODE_ID}_${TS}"
+BAG="$OUTDIR/${STEM}.bag"
+META="$META_DIR/${STEM}.json"
 
 # Build the topic list (joint_states + 13 controller states + context) from config.
 mapfile -t TOPICS < <(python3 - "$REPO" <<'PY'
@@ -50,21 +52,35 @@ printf '  %s\n' "${TOPICS[@]}"
 rosbag record --duration="${DURATION}" -O "$BAG" "${TOPICS[@]}" \
   __name:="record_${SESSION_ID}_${EPISODE_ID}"
 
-cat > "$META" <<EOF
-session_id: $SESSION_ID
-episode_id: $EPISODE_ID
-timestamp: $TS
-bag: $(basename "$BAG")
-duration_sec: $DURATION
-excitation: $EXCITATION            # free_space | loaded | manual_perturbation
-control_mode: $CONTROL_MODE        # PWM | Torque
-warmup: $WARMUP                    # cold | warm
-driver_version: "$DRIVER_VERSION"
-operator_notes: "$OPERATOR"
-ros_master_uri: "${ROS_MASTER_URI:-}"
-recorded_topics:
-$(printf '  - %s\n' "${TOPICS[@]}")
-EOF
+# Written via python3 (not a bash heredoc) so operator notes / topic names never need
+# manual quoting/escaping to stay valid JSON.
+python3 - "$META" "$SESSION_ID" "$EPISODE_ID" "$TS" "$(basename "$BAG")" "$DURATION" \
+  "$EXCITATION" "$CONTROL_MODE" "$WARMUP" "$DRIVER_VERSION" "$OPERATOR" \
+  "${ROS_MASTER_URI:-}" "${TOPICS[@]}" <<'PY'
+import json
+import sys
+
+(meta_path, session_id, episode_id, ts, bag, duration, excitation, control_mode,
+ warmup, driver_version, operator, ros_master_uri) = sys.argv[1:13]
+topics = sys.argv[13:]
+
+meta = {
+    "session_id": session_id,
+    "episode_id": episode_id,
+    "timestamp": ts,
+    "bag": bag,
+    "duration_sec": int(duration),
+    "excitation": excitation,  # free_space | loaded | manual_perturbation
+    "control_mode": control_mode,  # PWM | Torque
+    "warmup": warmup,  # cold | warm
+    "driver_version": driver_version,
+    "operator_notes": operator,
+    "ros_master_uri": ros_master_uri,
+    "recorded_topics": topics,
+}
+with open(meta_path, "w") as f:
+    json.dump(meta, f, indent=2)
+PY
 
 echo "wrote $BAG"
 echo "wrote $META"

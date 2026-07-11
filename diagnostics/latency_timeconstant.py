@@ -39,7 +39,6 @@ import pathlib
 import sys
 
 import numpy as np
-import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import config_lib as cl  # noqa: E402
@@ -78,18 +77,18 @@ def _load_one(path: pathlib.Path) -> dict:
 
 
 def _load_tag(path: pathlib.Path) -> str | None:
-    """Best-effort: aligned.npz -> sidecar .aligned.json -> raw bag -> .meta.yaml
-    -> 'excitation' field. Returns None if any hop is missing (no data-model
-    assumption is asserted; this is purely optional enrichment)."""
+    """Best-effort: aligned.npz -> meta/<session>/<stem>.json -> 'excitation' field.
+    Returns None if the sidecar is missing (no data-model assumption is asserted; this
+    is purely optional enrichment)."""
     try:
-        sidecar = path.with_suffix("").with_suffix(".aligned.json")
+        session = path.parent.name
+        stem = path.name
+        if stem.endswith(".aligned.npz"):
+            stem = stem[: -len(".aligned.npz")]
+        sidecar = cl.REPO_ROOT / "meta" / session / f"{stem}.json"
         if not sidecar.exists():
             return None
-        bag = pathlib.Path(json.loads(sidecar.read_text())["bag"])
-        meta = bag.with_suffix("").with_suffix(".meta.yaml")
-        if not meta.exists():
-            return None
-        return yaml.safe_load(meta.read_text()).get("excitation")
+        return json.loads(sidecar.read_text()).get("excitation")
     except Exception:  # noqa: BLE001
         return None
 

@@ -45,11 +45,10 @@ def publish_frame(pubs: dict, frame: np.ndarray, actuator_order: list[str] | Non
         pubs[a].publish(msg)
 
 
-def read_current_actuator_pose(timeout_s: float = 5.0) -> np.ndarray:
-    """(13,) radians, actuator_order, from each controller's live process_value. RAW —
-    no /2.0 (that division in send_step.py only inverts a policy-space 2x multiplier
-    this package never applies; the J0 process_value here already IS the actuator
-    command range, 0..pi)."""
+def _read_current_controller_states(timeout_s: float = 5.0) -> dict:
+    """{actuator_name: JointControllerState}, one live sample per actuator. Shared by
+    read_current_actuator_pose() and read_current_setpoint_gap() so both see the exact
+    same snapshot rather than two separate subscribe rounds racing each other."""
     import rospy
     from control_msgs.msg import JointControllerState
     from threading import Lock
@@ -57,12 +56,12 @@ def read_current_actuator_pose(timeout_s: float = 5.0) -> np.ndarray:
     joints = cl.load_joints()
     acts = list(joints["actuator_order"])
     lock = Lock()
-    latest: dict[str, float] = {}
+    latest: dict[str, JointControllerState] = {}
 
     def _mk_cb(name):
         def _cb(msg):
             with lock:
-                latest[name] = msg.process_value
+                latest[name] = msg
         return _cb
 
     subs = [rospy.Subscriber(cl.controller_state_topic(a), JointControllerState, _mk_cb(a),
@@ -83,8 +82,41 @@ def read_current_actuator_pose(timeout_s: float = 5.0) -> np.ndarray:
         if missing:
             raise RuntimeError(f"timed out waiting for current pose from: {missing} "
                                 f"(controller /state topics not publishing?)")
-        pose = np.array([latest[a] for a in acts], dtype=np.float64)
-    return pose
+        return dict(latest)
+
+
+def read_current_actuator_pose(timeout_s: float = 5.0) -> np.ndarray:
+    """(13,) radians, actuator_order, from each controller's live process_value. RAW —
+    no /2.0 (that division in send_step.py only inverts a policy-space 2x multiplier
+    this package never applies; the J0 process_value here already IS the actuator
+    command range, 0..pi)."""
+    joints = cl.load_joints()
+    acts = list(joints["actuator_order"])
+    states = _read_current_controller_states(timeout_s)
+    return np.array([states[a].process_value for a in acts], dtype=np.float64)
+
+
+def read_current_setpoint_gap(timeout_s: float = 5.0) -> dict:
+    """Per-actuator |process_value - set_point| (rad) at THIS moment, actuator_order. A
+    large gap means the hand's physical position and its last commanded target already
+    disagree BEFORE this episode's own trajectory starts -- e.g. a manual perturbation
+    episode (or an e-stop) left the hand somewhere its set_point was never updated to
+    match. play()'s lead_in_ramp_from starts from process_value (not set_point), so a
+    large gap here predicts a one-time "catch-up" jump in the recorded action trace at
+    the start of the episode -- expected and physically real, not a resampling bug (see
+    run_episode.py, which stamps this into meta/<session>/<ep>.json for provenance).
+
+    Returns {"process_value": {act: v}, "set_point": {act: v}, "gap": {act: v},
+    "max_gap_rad": float}.
+    """
+    joints = cl.load_joints()
+    acts = list(joints["actuator_order"])
+    states = _read_current_controller_states(timeout_s)
+    pv = {a: float(states[a].process_value) for a in acts}
+    sp = {a: float(states[a].set_point) for a in acts}
+    gap = {a: abs(pv[a] - sp[a]) for a in acts}
+    return {"process_value": pv, "set_point": sp, "gap": gap,
+            "max_gap_rad": max(gap.values())}
 
 
 def play(pubs: dict, traj: np.ndarray, rate: float, *, lead_in_ramp_from: np.ndarray | None = None,
@@ -100,7 +132,7 @@ def play(pubs: dict, traj: np.ndarray, rate: float, *, lead_in_ramp_from: np.nda
     opens with a large jump (unsafe, and would itself register as a spurious step).
 
     Returns {"jitter_ms": {mean,p50,p95,max}, "overruns": int, "n_frames": int} — the
-    jitter/overrun stats a caller writes into meta.yaml. If jitter is bad the whole
+    jitter/overrun stats a caller writes into the meta/ JSON sidecar. If jitter is bad the whole
     dataset built from this episode is suspect.
     """
     import rospy

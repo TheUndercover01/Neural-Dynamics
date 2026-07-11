@@ -47,12 +47,22 @@ def resolve_actuator(joint_arg: str, joints: dict) -> tuple[str, list[str]]:
     raise SystemExit(f"--joint {joint_arg!r} not found in actuator_order/joint_order/coupling")
 
 
-def find_bag_path(aligned_path: pathlib.Path) -> pathlib.Path | None:
-    sidecar = aligned_path.parent / aligned_path.name.replace(".aligned.npz", ".aligned.json")
+def find_bag_path(aligned_path: pathlib.Path, cl_root: pathlib.Path) -> pathlib.Path | None:
+    """Looks up meta/<session>/<stem>.json (the JSON sidecar record_episode.sh/
+    run_episode.py wrote, later merged with align.py's QC) -- NOT next to the aligned
+    npz itself, see README.md's Layout section for why raw/aligned dirs hold only
+    binaries."""
+    session = aligned_path.parent.name
+    stem = aligned_path.name
+    if stem.endswith(".aligned.npz"):
+        stem = stem[: -len(".aligned.npz")]
+    sidecar = cl_root / "meta" / session / f"{stem}.json"
     if not sidecar.exists():
         return None
     try:
-        bag = pathlib.Path(json.loads(sidecar.read_text())["bag"])
+        bag_field = pathlib.Path(json.loads(sidecar.read_text())["bag"])
+        # "bag" is stored as a basename (relative to data/raw/<session>/), not absolute.
+        bag = bag_field if bag_field.is_absolute() else cl_root / "data" / "raw" / session / bag_field
         return bag if bag.exists() else None
     except Exception:  # noqa: BLE001
         return None
@@ -133,9 +143,9 @@ def main() -> int:
     print("=" * 88)
     print("STAGE 1 — raw bag (preprocess/parse_bag.py)")
     print("=" * 88)
-    bag_path = find_bag_path(aligned_path)
+    bag_path = find_bag_path(aligned_path, cl.REPO_ROOT)
     if bag_path is None:
-        print("  (no .aligned.json sidecar / bag found next to this aligned file — skipping)")
+        print("  (no meta/<session>/<episode>.json sidecar / bag found — skipping)")
     else:
         from preprocess.parse_bag import parse_bag
         parsed = parse_bag(bag_path)

@@ -91,9 +91,9 @@ def read_current_pose(timeout_s: float = 3.0) -> np.ndarray:
             pose[pol_idx] = latest[name] / 2.0 if coupled else latest[name]
     return pose
 
-# Mirrors actuator_data/config/latency.yaml's step_thresh (0.05 rad) — a step smaller
+# Mirrors actuator_data/config/latency.yaml's step_thresh (0.1 rad) — a step smaller
 # than this won't register as a "step" to the latency diagnostic's detector.
-MIN_STEP_RAD = 0.05
+MIN_STEP_RAD = 0.1
 
 
 def resolve_joint(joint_arg: str) -> int:

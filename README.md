@@ -35,10 +35,15 @@ in `build_dataset.py`. See [DISCOVERY.md](DISCOVERY.md) for the live-verified to
 ```
 config/     joints.yaml (16 joints / 13 actuators / coupling), topics.yaml, pipeline.yaml
 config_lib.py   single source of truth for canonical orders + the 52/208 frame layout
-scripts/    discover.sh, record_episode.sh, check_stream.py     (on-box collection)
+scripts/    discover.sh, record_episode.sh, check_stream.py, collect_dataset.sh (on-box)
 preprocess/ parse_bag.py -> align.py -> build_dataset.py -> normalize.py   (offline)
 qc/         report.py (per-episode PNG/HTML), loader_test.py (dataset contract test)
-data/       raw/ (bags, source of truth)  aligned/ (resampled)  dataset/ (X,Y + manifest)
+data/       raw/ (bags, source of truth, gitignored)  aligned/ (resampled npz, gitignored)
+            dataset/ (X,Y + manifest, gitignored)
+meta/       <session>/<episode>.json -- ONE JSON per episode: collection config
+            (regime/families/seeds/max_delta/step_events/jitter/operator notes) +,
+            once align.py runs, an "aligned" QC section. Git-tracked (unlike data/) so
+            it transfers with a plain git pull.
 ```
 
 ## Quickstart

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: compose an excitation episode for one regime, record it, and stamp meta.yaml.
+"""CLI: compose an excitation episode for one regime, record it, and stamp its meta/ JSON.
 
     python3 excitation/run_episode.py --regime step_probe --dry-run
     python3 excitation/run_episode.py --regime free_space --session 2026_07_09_pm --episode ep001
@@ -8,22 +8,23 @@
 ROS or rosbag — runnable on a box with no ROS install, for CI/offline sanity-checking.
 
 The real run reuses scripts/record_episode.sh (rosbag record on the native-rate topic
-list, writes the meta.yaml base) rather than reimplementing rosbag record here. That
-script's `rosbag record --duration=...` call is BLOCKING and writes meta.yaml only
-AFTER it exits, so this script launches it as a background subprocess, runs the publish
-loop concurrently while it's recording, waits for it to exit, then APPENDS excitation-
-specific keys to the meta.yaml it already wrote (never clobbering the base).
+list, writes the meta/<session>/<episode>.json base) rather than reimplementing rosbag
+record here. That script's `rosbag record --duration=...` call is BLOCKING and writes
+the JSON sidecar only AFTER it exits, so this script launches it as a background
+subprocess, runs the publish loop concurrently while it's recording, waits for it to
+exit, then APPENDS excitation-specific keys to the JSON it already wrote (never
+clobbering the base). preprocess/align.py later merges an "aligned" section into this
+same file -- one JSON per episode ends up describing everything about it.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import subprocess
 import sys
-import time
 
 import numpy as np
-import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -54,12 +55,18 @@ def _print_schedule(regime: str, traj: np.ndarray, step_events: list[dict], info
 
 def _build_episode(args) -> tuple[np.ndarray, list[dict], dict]:
     families_weights = ecfg.REGIME_FAMILIES[args.regime]
-    duration_s = args.duration or ecfg.REGIME_DEFAULT_DURATION_S[args.regime]
     seed = args.seed if args.seed is not None else int(np.random.SeedSequence().entropy % (2**31 - 1))
+    # Drawn from a Generator seeded with `seed` (not args.duration's own separate RNG
+    # state) so the same --seed reproduces the same duration_s too -- see
+    # excitation/config.py:DURATION_RANGE_S. A fresh Generator here doesn't consume any
+    # of compose_episode()'s own internal rng_seed-derived draws (it creates its own),
+    # so this doesn't perturb channel allocation / family_seeds / max_delta reproducibility.
+    duration_s = args.duration or float(np.random.default_rng(seed).uniform(*ecfg.DURATION_RANGE_S))
     traj, step_events, info = compose.compose_episode(
         args.regime, list(families_weights.keys()), families_weights,
         rng_seed=seed, duration_s=duration_s, rate=ecfg.PUBLISH_RATE_HZ)
     info["rng_seed"] = seed
+    info["duration_s"] = duration_s
     return traj, step_events, info
 
 
@@ -85,20 +92,27 @@ def _parse_wrote_paths(stdout_text: str) -> dict:
             p = pathlib.Path(line[len("wrote "):].strip())
             if p.suffix == ".bag":
                 paths["bag"] = p
-            elif p.suffixes[-2:] == [".meta", ".yaml"]:
+            elif p.suffix == ".json":
                 paths["meta"] = p
     return paths
 
 
 def _append_meta(meta_path: pathlib.Path, traj: np.ndarray, step_events: list[dict],
-                  info: dict, play_result: dict, rate: float) -> None:
+                  info: dict, play_result: dict, rate: float, setpoint_gap: dict) -> None:
     joints = cl.load_joints()
     acts = joints["actuator_order"]
-    meta = yaml.safe_load(meta_path.read_text()) or {}
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     meta.update({
         "regime": info["regime"],
         "families": info["families"],
         "rng_seed": info["rng_seed"],
+        # Pure trajectory duration (compose_episode()'s duration_s arg) -- NOT the same
+        # as duration_sec below, which is the full recorded bag length (home-settle +
+        # lead-in ramp + this + lead-out + margin). Needed to regenerate the exact same
+        # trajectory from rng_seed alone, since duration_s is now itself randomly drawn
+        # per episode (excitation.config.DURATION_RANGE_S) rather than a fixed per-regime
+        # constant.
+        "duration_s": info["duration_s"],
         "family_seeds": info["family_seeds"],
         "command_space": "actuator_order",  # radians, raw to /command, no 2x multiplier
         "publish_rate_hz": rate,
@@ -113,8 +127,21 @@ def _append_meta(meta_path: pathlib.Path, traj: np.ndarray, step_events: list[di
             for e in step_events
         ],
         "native_rates_hz": ecfg.NATIVE_RATES_HZ,
+        # Every episode resets to this pose and settles for home_settle_s before playing
+        # -- see excitation/config.py:home_pose_actuator() for the policy->actuator
+        # conversion (coupled joints x2, confirmed convention; clipped to
+        # effective_command_limits()).
+        "home_pose_actuator": dict(zip(acts, ecfg.home_pose_actuator().tolist())),
+        "home_settle_s": ecfg.HOME_SETTLE_S,
+        # Snapshot taken right after the home-settle hold, before play() starts (see
+        # publisher.read_current_setpoint_gap): a large max_gap_rad here means the
+        # controller DIDN'T settle to home cleanly (worth investigating), or -- for a
+        # gap measured before this reset existed -- predicts a one-time "catch-up" jump
+        # in the recorded action trace. Real, physically-grounded, not a resampling
+        # artifact -- see COLLECTION_PROTOCOL.md.
+        "pre_episode_setpoint_gap": setpoint_gap,
     })
-    meta_path.write_text(yaml.safe_dump(meta, sort_keys=False))
+    meta_path.write_text(json.dumps(meta, indent=2))
 
 
 def main() -> int:
@@ -125,7 +152,8 @@ def main() -> int:
     ap.add_argument("--episode", default=None, help="required unless --dry-run")
     ap.add_argument("--seed", type=int, default=None, help="default: random")
     ap.add_argument("--duration", type=float, default=None,
-                     help=f"default: excitation.config.REGIME_DEFAULT_DURATION_S[regime]")
+                     help="default: random, uniform in excitation.config.DURATION_RANGE_S "
+                          "(seeded off --seed, so the draw is reproducible)")
     ap.add_argument("--dry-run", action="store_true",
                      help="compose + print the schedule only, no ROS/rosbag")
     args = ap.parse_args()
@@ -144,7 +172,12 @@ def main() -> int:
     import publisher  # local import: only needed on the real (ROS) path
 
     duration_s = traj.shape[0] / rate
-    record_dur = 2 * ecfg.LEAD_IN_S + duration_s + ecfg.LEAD_OUT_S + ecfg.RECORD_MARGIN_S
+    # HOME_SETTLE_S (drive to + settle at home_pose_actuator()) replaces the old silent
+    # "give rosbag time to advertise/subscribe" wait -- it's a superset (also publishes,
+    # so rosbag's subscription completes during it same as before) plus it's where the
+    # pre-episode reset actually happens. LEAD_IN_S below is play()'s OWN internal ramp
+    # from home to traj[0].
+    record_dur = ecfg.HOME_SETTLE_S + ecfg.LEAD_IN_S + duration_s + ecfg.LEAD_OUT_S + ecfg.RECORD_MARGIN_S
     excitation_tag = ecfg.REGIME_TO_EXCITATION[args.regime]
 
     print(f"\nlaunching scripts/record_episode.sh {args.session} {args.episode} "
@@ -155,10 +188,21 @@ def main() -> int:
     rospy.init_node("run_episode", anonymous=True, disable_signals=True)
     pubs = publisher.create_publishers()
     rospy.sleep(0.5)  # let publishers connect
-    time.sleep(ecfg.LEAD_IN_S)  # give rosbag time to advertise/subscribe before we publish
+
+    home_pose = ecfg.home_pose_actuator()
+    print(f"resetting to baoding-ball home pose, settling {ecfg.HOME_SETTLE_S:.1f}s ...")
+    publisher.hold(pubs, home_pose, ecfg.HOME_SETTLE_S, rate)
 
     print("reading current actuator pose ...")
-    current = publisher.read_current_actuator_pose()
+    setpoint_gap = publisher.read_current_setpoint_gap()
+    acts = cl.load_joints()["actuator_order"]
+    current = np.array([setpoint_gap["process_value"][a] for a in acts], dtype=np.float64)
+    if setpoint_gap["max_gap_rad"] > 0.1:
+        worst = max(setpoint_gap["gap"], key=setpoint_gap["gap"].get)
+        print(f"NOTE: set_point/process_value gap up to {setpoint_gap['max_gap_rad']:.4f} rad "
+              f"(worst: {worst}) even AFTER settling at home -- controller may be tracking "
+              f"poorly; expect a one-time 'catch-up' jump at the start of the recorded "
+              f"action trace.")
     print("playing trajectory ...")
     play_result = publisher.play(pubs, traj, rate, lead_in_ramp_from=current)
     print(f"play() done: jitter_ms={play_result['jitter_ms']} overruns={play_result['overruns']}")
@@ -172,11 +216,11 @@ def main() -> int:
 
     paths = _parse_wrote_paths(stdout_text)
     if "meta" not in paths:
-        print("ERROR: could not find meta.yaml path in record_episode.sh output; "
+        print("ERROR: could not find the JSON sidecar path in record_episode.sh output; "
               "excitation metadata NOT appended.", file=sys.stderr)
         return 1
 
-    _append_meta(paths["meta"], traj, step_events, info, play_result, rate)
+    _append_meta(paths["meta"], traj, step_events, info, play_result, rate, setpoint_gap)
     print(f"appended excitation metadata to {paths['meta']}")
     return 0
 
