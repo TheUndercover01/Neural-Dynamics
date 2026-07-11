@@ -60,5 +60,6 @@ output_format: hdf5
 
 # Extra context columns to carry into aligned tables / dataset (excluded from X/Y).
 keep_context:
-  joint_effort: true       # /joint_states.effort (16)
-  controller_command: true # controller .command / PWM (13)
+  joint_velocity: true      # /joint_states.velocity (16)
+  joint_effort: true        # /joint_states.effort (16)
+  controller_command: true  # controller .command / PWM (13)

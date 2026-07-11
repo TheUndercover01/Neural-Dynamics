@@ -12,6 +12,7 @@ Aligned table columns (all on the same grid, actuator/joint canonical order):
     act_vel   [T,13]  = process_value_dot
     action    [T,13]  = set_point            (commanded target)
     gt_pos    [T,16]  = /joint_states.position   (the 16 outputs)
+    gt_vel    [T,16]  = /joint_states.velocity    (context)
     gt_effort [T,16]  = /joint_states.effort      (context)
     command   [T,13]  = controller .command / PWM (context)
     valid     [T]     bool: False where any stream had no sample within max_gap_ms
@@ -105,6 +106,9 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
     gt_pos = np.column_stack([
         _resample(grid, js["t"], js["position"][:, j], interp["joint_position"])
         for j in range(cl.N_JOINTS)])
+    gt_vel = np.column_stack([
+        _resample(grid, js["t"], js["velocity"][:, j], interp["joint_velocity"])
+        for j in range(cl.N_JOINTS)])
     gt_effort = np.column_stack([
         _resample(grid, js["t"], js["effort"][:, j], interp["joint_effort"])
         for j in range(cl.N_JOINTS)])
@@ -123,7 +127,7 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
     return {
         "t": grid,
         "act_pos": act_pos, "act_err": act_err, "act_vel": act_vel, "action": action,
-        "gt_pos": gt_pos, "gt_effort": gt_effort, "command": command,
+        "gt_pos": gt_pos, "gt_vel": gt_vel, "gt_effort": gt_effort, "command": command,
         "valid": valid, "seg_id": seg_id,
         "actuator_order": np.array(acts),
         "joint_order": np.array(joints["joint_order"]),

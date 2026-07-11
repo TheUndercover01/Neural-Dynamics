@@ -56,13 +56,49 @@ Fields used (per JointControllerState):
 - `set_point`         — commanded target  → **action** feature
 - `process_value`     — measured joint position (for J0 = summed J1+J2) → **act_pos** feature
 - `process_value_dot` — measured velocity → **act_vel** feature
-- `error`             — `set_point - process_value` → **act_err** feature
+- `error`             — `process_value - set_point` (verified live 2026-07-11: matches this
+  sign, not the reverse; see actuator_data's align.py output) → **act_err** feature
 - `command`           — controller output (**PWM** in this mode) → context only, not in 208
 
 Publish rate: **~87 Hz** (prior live session).
 
 Each actuator also exposes `.../command`, `.../max_force_factor`, `.../pid/*`, and the J0
 actuators additionally publish `.../underactuation_cartesian_error` (not used).
+
+## What's raw hardware data vs. computed by our pipeline
+Every field listed above (`/joint_states.position/velocity/effort`, and the controller's
+`set_point`/`process_value`/`process_value_dot`/`error`/`command`) is **raw, exactly as
+the driver/controller firmware publishes it** — no script in this repo derives or
+recalculates any of these values. `preprocess/align.py` only *resamples* them onto the
+common 60Hz grid (`zoh`: holds the last real sample; never blends, averages, or derives a
+new value):
+
+| aligned column | raw source field | computed by us? |
+|---|---|---|
+| `gt_pos` | `/joint_states.position` | no — raw, resampled only |
+| `gt_vel` | `/joint_states.velocity` | no — raw, resampled only |
+| `gt_effort` | `/joint_states.effort` | no — raw, resampled only |
+| `action` | controller `set_point` | no — raw, resampled only |
+| `act_pos` | controller `process_value` | no — raw, resampled only |
+| `act_vel` | controller `process_value_dot` | no — raw, resampled only |
+| `act_err` | controller `error` (sign verified live: `process_value - set_point`) | no — raw, resampled only |
+| `command` | controller `command` (PWM) | no — raw, resampled only |
+
+These, by contrast, ARE computed/derived by this repo's own code, not read directly off
+any topic:
+- **`t`, `valid`, `seg_id`** (`preprocess/align.py`) — the uniform time grid and
+  gap/segment bookkeeping; synthetic, not a sensor reading.
+- **`max_delta_rad`, `per_channel_delta_max`/`_p95`, `step_events`**
+  (`excitation/compose.py`) — properties of the trajectory WE generated and commanded,
+  logged as ground truth for what was intentionally excited; not derived from any
+  sensor reading.
+- **`home_pose_actuator`** (`excitation/config.py`) — the baoding-ball pose converted
+  from policy-space into actuator-space radians (coupled joints x2), clipped to
+  `effective_command_limits()`. This is what we command the hand to; it is not a sensor
+  reading.
+- **`pre_episode_setpoint_gap`** (`excitation/publisher.py`) — `|process_value -
+  set_point|`, computed by us from two raw fields right before each episode's
+  trajectory starts.
 
 ## Rate note
 `rostopic hz` and subscribing to the controller `/state` topics could not be completed
