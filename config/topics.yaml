@@ -6,6 +6,16 @@
 # Ground-truth joint positions (the 16 outputs). sensor_msgs/JointState.
 joint_states: /joint_states
 
+# TouchLab tactile sensor, read directly from the hardware source rather than through
+# the shadow_touchlab_translator/tactile_relay nodes (neither is running by default,
+# and depending on them would need extra nodes launched before every session). Confirmed
+# live 2026-07-11: sr_robot_msgs/BiotacAll, tactiles[5] (ff,mf,rf,lf,th firmware order),
+# each Biotac.electrodes has 19 raw values on the wire; lf (index 3) reads all-zero
+# (doesn't exist on this hand). parse_bag.py takes electrodes[:16] per REAL finger
+# (ff,mf,rf,th), matching shadow_touchlab_translator's own n_taxels=16 truncation, giving
+# 4*16=64 taxels -- lf is dropped entirely, not zero-padded.
+tactile: /rh/tactile
+
 # Per-actuator controller state (the 13 inputs). control_msgs/JointControllerState.
 controller_state:
   - /sh_rh_ffj0_position_controller/state
@@ -31,3 +41,4 @@ expected_rates_hz:      # informational; discover.sh refreshes from the live box
   joint_states: 125
   controller_state: 87
   diagnostics: 2
+  tactile: 100          # measured live via `rostopic hz /rh/tactile`, 2026-07-11

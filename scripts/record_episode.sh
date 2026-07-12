@@ -34,13 +34,13 @@ STEM="${EPISODE_ID}_${TS}"
 BAG="$OUTDIR/${STEM}.bag"
 META="$META_DIR/${STEM}.json"
 
-# Build the topic list (joint_states + 13 controller states + context) from config.
+# Build the topic list (joint_states + tactile + 13 controller states + context) from config.
 mapfile -t TOPICS < <(python3 - "$REPO" <<'PY'
 import sys, pathlib
 sys.path.insert(0, sys.argv[1])
 import config_lib as cl
 t = cl.load_topics()
-topics = [t["joint_states"]] + list(t["controller_state"]) + list(t.get("context", []))
+topics = [t["joint_states"], t["tactile"]] + list(t["controller_state"]) + list(t.get("context", []))
 print("\n".join(topics))
 PY
 )

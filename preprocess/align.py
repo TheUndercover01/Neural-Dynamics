@@ -14,6 +14,8 @@ Aligned table columns (all on the same grid, actuator/joint canonical order):
     gt_pos    [T,16]  = /joint_states.position   (the 16 outputs)
     gt_vel    [T,16]  = /joint_states.velocity    (context)
     gt_effort [T,16]  = /joint_states.effort      (context)
+    gt_tactile [T,64] = /rh/tactile electrodes[:16] per real finger, ff/mf/rf/th order
+                        (lf dropped -- see topics.yaml)
     command   [T,13]  = controller .command / PWM (context)
     valid     [T]     bool: False where any stream had no sample within max_gap_ms
     seg_id    [T]     int : contiguous valid-run id (-1 where invalid)
@@ -73,6 +75,7 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
     max_gap = float(pipeline["max_gap_ms"]) / 1e3
 
     js = parsed["joint_states"]
+    tac = parsed["tactile"]
     # Common time span across all present streams.
     starts = [js["t"][0]]
     ends = [js["t"][-1]]
@@ -80,6 +83,8 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
         t = parsed["controller"][a]["t"]
         if t.size:
             starts.append(t[0]); ends.append(t[-1])
+    if tac["t"].size:
+        starts.append(tac["t"][0]); ends.append(tac["t"][-1])
     t0, t1 = max(starts), min(ends)
     if t1 <= t0:
         raise RuntimeError("no overlapping time span across streams")
@@ -102,6 +107,7 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
         action[:, i] = _resample(grid, c["t"], c["set_point"], interp["set_point"])
         command[:, i] = _resample(grid, c["t"], c["command"], interp["command"])
         nn = np.maximum(nn, _nn_distance(grid, c["t"]))
+    nn = np.maximum(nn, _nn_distance(grid, tac["t"]))
 
     gt_pos = np.column_stack([
         _resample(grid, js["t"], js["position"][:, j], interp["joint_position"])
@@ -112,6 +118,10 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
     gt_effort = np.column_stack([
         _resample(grid, js["t"], js["effort"][:, j], interp["joint_effort"])
         for j in range(cl.N_JOINTS)])
+    n_taxels = tac["taxels"].shape[1]
+    gt_tactile = np.column_stack([
+        _resample(grid, tac["t"], tac["taxels"][:, j], interp["tactile"])
+        for j in range(n_taxels)])
 
     valid = np.isfinite(nn) & (nn <= max_gap)
     # Label each contiguous run of valid grid points with a consecutive seg_id (>=0);
@@ -127,7 +137,8 @@ def align_parsed(parsed: dict, pipeline: dict, joints: dict) -> dict:
     return {
         "t": grid,
         "act_pos": act_pos, "act_err": act_err, "act_vel": act_vel, "action": action,
-        "gt_pos": gt_pos, "gt_vel": gt_vel, "gt_effort": gt_effort, "command": command,
+        "gt_pos": gt_pos, "gt_vel": gt_vel, "gt_effort": gt_effort,
+        "gt_tactile": gt_tactile, "command": command,
         "valid": valid, "seg_id": seg_id,
         "actuator_order": np.array(acts),
         "joint_order": np.array(joints["joint_order"]),

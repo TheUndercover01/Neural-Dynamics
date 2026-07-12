@@ -31,6 +31,36 @@ network learns the coupling from summed-actuator input → 16 individual joint o
 radians are preserved in `data/aligned/`; the normalise+reorder into the policy frame happens
 in `build_dataset.py`. See [DISCOVERY.md](DISCOVERY.md) for the live-verified topology.
 
+## Aligned data structure (`data/aligned/<session>/<ep>.aligned.npz`)
+One episode = one `.npz`, written by `preprocess/align.py`, everything resampled onto a
+single `dataset_rate` (60Hz) grid via `zoh`. This is the per-episode, un-windowed,
+un-normalized, un-split artifact — still raw-ish, not committed to any one dataset
+strategy (that's `build_dataset.py`'s job, described above).
+
+| key | shape | dtype | meaning |
+|---|---|---|---|
+| `t` | `[T]` | float64 | grid timestamps (s), spaced `1/dataset_rate` |
+| `act_pos` | `[T,13]` | float64 | measured actuator position (`process_value`), `actuator_order` |
+| `act_vel` | `[T,13]` | float64 | measured actuator velocity (`process_value_dot`) |
+| `act_err` | `[T,13]` | float64 | controller's own `error` field, raw (`process_value - set_point`) |
+| `action` | `[T,13]` | float64 | commanded target (`set_point`) |
+| `command` | `[T,13]` | float64 | raw PWM controller output (context) |
+| `gt_pos` | `[T,16]` | float64 | `/joint_states.position`, `joint_order` |
+| `gt_vel` | `[T,16]` | float64 | `/joint_states.velocity` (context) |
+| `gt_effort` | `[T,16]` | float64 | `/joint_states.effort` (context) |
+| `gt_tactile` | `[T,64]` | float64 | `/rh/tactile` electrodes: `ff(0-15), mf(16-31), rf(32-47), th(48-63)` — `lf` dropped (doesn't exist on this hand) |
+| `valid` | `[T]` | bool | `False` where any stream (incl. tactile) had no sample within `max_gap_ms` |
+| `seg_id` | `[T]` | int | contiguous valid-run id, `-1` at gaps — `build_dataset.py` never stacks across a segment boundary |
+| `actuator_order` | `[13]` | string array | column labels for every 13-wide array |
+| `joint_order` | `[16]` | string array | column labels for every 16-wide array |
+| `dataset_rate` | scalar | float64 | Hz this episode was resampled to |
+
+All of the above except `t`/`valid`/`seg_id` are **raw hardware passthrough** — `align.py`
+only resamples, it never derives or recalculates a value. See
+[DISCOVERY.md](DISCOVERY.md#whats-raw-hardware-data-vs-computed-by-our-pipeline) for the
+full raw-vs-computed breakdown, including what `run_episode.py`/`compose.py` compute
+(trajectory ground truth, home pose, jitter stats) that lives in the `meta/` JSON instead.
+
 ## Layout
 ```
 config/     joints.yaml (16 joints / 13 actuators / coupling), topics.yaml, pipeline.yaml

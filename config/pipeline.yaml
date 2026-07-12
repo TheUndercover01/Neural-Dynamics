@@ -32,6 +32,7 @@ interp:
   joint_position: zoh
   joint_velocity: zoh
   joint_effort: zoh
+  tactile: zoh
 
 # --- Frame stacking --------------------------------------------------------------------
 stack_len: 4               # frames per input sample
@@ -63,3 +64,4 @@ keep_context:
   joint_velocity: true      # /joint_states.velocity (16)
   joint_effort: true        # /joint_states.effort (16)
   controller_command: true  # controller .command / PWM (13)
+  tactile: true             # /rh/tactile electrodes, ff/mf/rf/th x 16 (64)
