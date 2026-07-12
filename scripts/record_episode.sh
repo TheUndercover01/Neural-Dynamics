@@ -25,6 +25,34 @@ OPERATOR="${OPERATOR:-}"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source /opt/ros/noetic/setup.bash 2>/dev/null || true
+source /ros1/devel/setup.bash 2>/dev/null || true   # touchlab_driver_ros/touchlab_msgs live here
+
+# Tactile: shadow_touchlab_translator publishes the calibrated topic config/topics.yaml
+# points "tactile" at (see that file's comment for why calibrated, not raw /rh/tactile).
+# It is NOT running by default -- launch it once, idempotently: a multi-episode session
+# only pays this cost on the first episode, subsequent ones see it already running.
+CALIBRATED_TOPIC="$(python3 - "$REPO" <<'PY'
+import sys, pathlib
+sys.path.insert(0, sys.argv[1])
+import config_lib as cl
+print(cl.load_topics()["tactile"])
+PY
+)"
+if ! rosnode list 2>/dev/null | grep -q '^/shadow_touchlab_translator$'; then
+  echo "Launching shadow_touchlab_translator (tactile calibration node) ..."
+  nohup roslaunch touchlab_driver_ros translator.launch \
+    > /tmp/shadow_touchlab_translator.log 2>&1 &
+  disown
+  for _ in $(seq 1 20); do
+    rostopic list 2>/dev/null | grep -qF "$CALIBRATED_TOPIC" && break
+    sleep 0.5
+  done
+  if ! rostopic list 2>/dev/null | grep -qF "$CALIBRATED_TOPIC"; then
+    echo "ERROR: shadow_touchlab_translator did not start publishing $CALIBRATED_TOPIC" \
+         "within 10s -- see /tmp/shadow_touchlab_translator.log" >&2
+    exit 1
+  fi
+fi
 
 TS="$(date +%Y%m%d_%H%M%S)"
 OUTDIR="$REPO/data/raw/$SESSION_ID"

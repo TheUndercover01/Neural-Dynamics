@@ -48,7 +48,7 @@ strategy (that's `build_dataset.py`'s job, described above).
 | `gt_pos` | `[T,16]` | float64 | `/joint_states.position`, `joint_order` |
 | `gt_vel` | `[T,16]` | float64 | `/joint_states.velocity` (context) |
 | `gt_effort` | `[T,16]` | float64 | `/joint_states.effort` (context) |
-| `gt_tactile` | `[T,64]` | float64 | `/rh/tactile` electrodes: `ff(0-15), mf(16-31), rf(32-47), th(48-63)` — `lf` dropped (doesn't exist on this hand) |
+| `gt_tactile` | `[T,64]` | float64 | `/shadow_touchlab_translator/calibrated` (auto-launched by `record_episode.sh`), `[2::3]`-unpacked: `ff(0-15), mf(16-31), rf(32-47), th(48-63)` — `lf` dropped (doesn't exist on this hand) |
 | `valid` | `[T]` | bool | `False` where any stream (incl. tactile) had no sample within `max_gap_ms` |
 | `seg_id` | `[T]` | int | contiguous valid-run id, `-1` at gaps — `build_dataset.py` never stacks across a segment boundary |
 | `actuator_order` | `[13]` | string array | column labels for every 13-wide array |

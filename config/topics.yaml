@@ -6,15 +6,19 @@
 # Ground-truth joint positions (the 16 outputs). sensor_msgs/JointState.
 joint_states: /joint_states
 
-# TouchLab tactile sensor, read directly from the hardware source rather than through
-# the shadow_touchlab_translator/tactile_relay nodes (neither is running by default,
-# and depending on them would need extra nodes launched before every session). Confirmed
-# live 2026-07-11: sr_robot_msgs/BiotacAll, tactiles[5] (ff,mf,rf,lf,th firmware order),
-# each Biotac.electrodes has 19 raw values on the wire; lf (index 3) reads all-zero
-# (doesn't exist on this hand). parse_bag.py takes electrodes[:16] per REAL finger
-# (ff,mf,rf,th), matching shadow_touchlab_translator's own n_taxels=16 truncation, giving
-# 4*16=64 taxels -- lf is dropped entirely, not zero-padded.
-tactile: /rh/tactile
+# TouchLab tactile sensor -- the CALIBRATED signal (matches my_policy_node.py's own
+# input), not the raw /rh/tactile electrode counts. Published by the
+# shadow_touchlab_translator node, which record_episode.sh auto-launches if not
+# already running (see its "Tactile" section). touchlab_msgs/Float64MultiArrayStamped.
+# Confirmed live 2026-07-12: multi_array.data is 240 values = 80 taxel positions
+# (5 fingers x 16, firmware order ff/mf/rf/lf/th) x 3 components each; only the 3rd
+# component per taxel (index 2, 5, 8, ... i.e. `data[2::3]`) is meaningfully non-zero
+# at rest (components 0/1 are near-always-zero -- likely shear force, vs. the 3rd
+# being normal force). This matches the raw[2::3] convention already used by
+# my_policy_node.py/run_simgap_hardware.py. parse_bag.py unpacks to 80 per-taxel
+# calibrated values, then keeps the 4 REAL fingers (ff,mf,rf,th; lf dropped -- doesn't
+# exist on this hand) = 64 values.
+tactile: /shadow_touchlab_translator/calibrated
 
 # Per-actuator controller state (the 13 inputs). control_msgs/JointControllerState.
 controller_state:
@@ -41,4 +45,4 @@ expected_rates_hz:      # informational; discover.sh refreshes from the live box
   joint_states: 125
   controller_state: 87
   diagnostics: 2
-  tactile: 100          # measured live via `rostopic hz /rh/tactile`, 2026-07-11
+  tactile: 100          # measured live via `rostopic hz /shadow_touchlab_translator/calibrated`, 2026-07-12

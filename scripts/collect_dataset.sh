@@ -8,6 +8,9 @@
 #
 # Usage:
 #   scripts/collect_dataset.sh SESSION_ID
+#   Ctrl-C at any point stops cleanly: kills the in-flight episode (if any), prints how
+#   many episodes were completed before stopping, and exits -- safe to interrupt a long
+#   run midway, nothing is left dangling.
 #
 # Env overrides:
 #   REGIMES=free_space free_space_continuous     (default: these 2 only, space-separated --
@@ -17,7 +20,7 @@
 #     free_space_continuous has NO steps mixed in -- every one of the 13 joints moves
 #     continuously at once, unlike free_space which always carves out a couple of step
 #     channels.
-#   EPISODES_PER_REGIME=5                        (default: 5, same count for every regime above)
+#   EPISODES_PER_REGIME=20                       (default: 20, same count for every regime above)
 #   DURATION=                                    (default: unset -> each regime's own
 #                                                  REGIME_DEFAULT_DURATION_S)
 #
@@ -26,10 +29,11 @@
 #   - a warning is printed ONE EPISODE AHEAD, i.e. during the last unattended episode
 #     before a manual regime starts, so you have that episode's whole duration to get
 #     in position -- not just an instant before recording starts.
-#   - the script then pauses for Enter before each manual episode, and prompts for a
-#     short free-text type/contact tag (e.g. finger_push_FFJ3, object_squeeze),
-#     forwarded as OPERATOR to run_episode.py -- ends up in that episode's
-#     meta/<session>/<episode>.json under operator_notes, no fixed taxonomy needed.
+#   - confirmation (tag + Enter) happens ONCE per manual-regime BLOCK, not per episode:
+#     the first episode of a run of consecutive perturbation/loaded_hold episodes pauses
+#     as before; subsequent episodes of that SAME regime, back to back, run automatically
+#     with no further pausing (reusing the same tag). A new pause only happens when the
+#     regime changes again (e.g. back to an unattended regime and then into a manual one).
 #
 # Every episode's full config (regime, families, seeds, max_delta_rad, step_events,
 # jitter/overruns, operator_notes, home_pose_actuator, ...) lives in ONE JSON at
@@ -49,6 +53,40 @@ cd "$REPO"
 read -r -a REGIMES <<< "${REGIMES:-free_space free_space_continuous}"
 EPISODES_PER_REGIME="${EPISODES_PER_REGIME:-20}"
 DURATION="${DURATION:-}"
+
+declare -A recorded
+total=0
+n_plan=0
+child_pid=""
+
+# Ctrl-C (or a kill) at any point: stop the in-flight episode's WHOLE process tree and
+# exit. run_episode.py launches scripts/record_episode.sh as its own subprocess, which
+# in turn launches `rosbag record` as ANOTHER subprocess -- killing just the direct
+# python3 child does NOT reach those grandchildren (confirmed: an earlier version of
+# this script left rosbag recording, orphaned, for its full --duration after the main
+# script had already exited). Each episode is launched via `setsid` below specifically
+# so child_pid IS that whole tree's process group id, letting `kill -- -PGID` (negative
+# PID = process GROUP) take everything down together: python3, record_episode.sh, and
+# rosbag record all at once.
+cleanup() {
+  echo
+  echo ">>> STOPPING (interrupted) -- $total/$n_plan episodes completed before stopping."
+  if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
+    kill -TERM -- "-$child_pid" 2>/dev/null
+    sleep 1
+    kill -KILL -- "-$child_pid" 2>/dev/null || true
+  fi
+  # The killed episode's own ROS node died with it, so nothing is left commanding the
+  # hand -- it's frozen wherever the trajectory was cut off. Return it to the known,
+  # safe home pose before this script (and the whole run, not just this episode) exits.
+  echo ">>> returning hand to home pose before stopping ..."
+  python3 excitation/go_home.py 2>&1 || echo "WARNING: failed to return to home pose -- check hand position manually" >&2
+  echo -n ">>> final count: "
+  for r in "${REGIMES[@]}"; do printf "%s=%d " "$r" "${recorded[$r]:-0}"; done
+  echo
+  exit 130
+}
+trap cleanup INT TERM
 
 MANUAL_REGIMES=(perturbation loaded_hold)
 is_manual() {
@@ -93,18 +131,18 @@ for regime in "${REGIMES[@]}"; do
     regime_count[$regime]=$((regime_count[$regime] + 1))
   done
 done
+n_plan=${#PLAN[@]}
 
-echo "=== plan: ${#PLAN[@]} episodes ==="
+echo "=== plan: $n_plan episodes ==="
 for regime in "${REGIMES[@]}"; do
   tag="unattended"
-  is_manual "$regime" && tag="NEEDS OPERATOR"
+  is_manual "$regime" && tag="NEEDS OPERATOR (confirm once per block)"
   printf "  %-22s x%-3d  %s\n" "$regime" "${regime_count[$regime]}" "$tag"
 done
 echo
 
-declare -A recorded
-total=0
-n_plan=${#PLAN[@]}
+prev_regime=""
+block_ptype=""
 for ((k = 0; k < n_plan; k++)); do
   regime="${PLAN[k]%%:*}"
   episode_id="${PLAN[k]#*:}"
@@ -121,22 +159,31 @@ for ((k = 0; k < n_plan; k++)); do
 
   ptype=""
   if is_manual "$regime"; then
-    echo ">>> next: $regime episode $episode_id -- get in position at the hand."
-    read -r -p ">>> perturbation/contact type tag (short free text, e.g. finger_push_FFJ3): " ptype
-    ptype="${ptype:-unspecified}"
-    read -r -p ">>> press Enter to start recording (Ctrl-C to abort the whole run) ..." _
+    if [[ "$regime" != "$prev_regime" ]]; then
+      echo ">>> next: $regime block starting at $episode_id -- get in position at the hand."
+      read -r -p ">>> perturbation/contact type tag for this whole block (short free text, e.g. finger_push_FFJ3): " block_ptype
+      block_ptype="${block_ptype:-unspecified}"
+      read -r -p ">>> press Enter to start the $regime block (${regime_count[$regime]} episodes back to back, Ctrl-C to abort the whole run) ..." _
+    else
+      echo ">>> continuing $regime block: $episode_id (confirmed once at block start, no further pausing)"
+    fi
+    ptype="$block_ptype"
   fi
+  prev_regime="$regime"
 
   echo "=== [$regime] episode $episode_id ($((total + 1))/$n_plan total) ==="
   dur_args=()
   [[ -n "$DURATION" ]] && dur_args=(--duration "$DURATION")
   if [[ -n "$ptype" ]]; then
-    OPERATOR="$ptype" python3 excitation/run_episode.py --regime "$regime" \
-      --session "$SESSION_ID" --episode "$episode_id" "${dur_args[@]}"
+    OPERATOR="$ptype" setsid python3 excitation/run_episode.py --regime "$regime" \
+      --session "$SESSION_ID" --episode "$episode_id" "${dur_args[@]}" &
   else
-    python3 excitation/run_episode.py --regime "$regime" --session "$SESSION_ID" \
-      --episode "$episode_id" "${dur_args[@]}"
+    setsid python3 excitation/run_episode.py --regime "$regime" --session "$SESSION_ID" \
+      --episode "$episode_id" "${dur_args[@]}" &
   fi
+  child_pid=$!
+  wait "$child_pid"
+  child_pid=""
 
   meta_file=$(ls -t "$META_DIR/${episode_id}"_*.json 2>/dev/null | head -1)
   if [[ -z "$meta_file" ]]; then

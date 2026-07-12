@@ -21,7 +21,7 @@ DT = 1.0 / PUBLISH_RATE_HZ
 LEAD_IN_S = 2.0     # hold/ramp before the generated trajectory starts (let rosbag subscribe)
 LEAD_OUT_S = 2.0    # hold after the trajectory ends (recording margin)
 RECORD_MARGIN_S = 3.0   # extra rosbag duration beyond lead-in/out + trajectory, safety buffer
-HOME_SETTLE_S = 3.0     # hold at home_pose_actuator() before every episode, see below
+HOME_SETTLE_S = 4.0     # hold at home_pose_actuator() before every episode, see below
 
 # --- Home / reset pose -----------------------------------------------------------------
 # "Baoding-ball" default pose from roto/tasks/robots/shadowlite/shadowlite.py, vendored via

@@ -65,33 +65,40 @@ Publish rate: **~87 Hz** (prior live session).
 Each actuator also exposes `.../command`, `.../max_force_factor`, `.../pid/*`, and the J0
 actuators additionally publish `.../underactuation_cartesian_error` (not used).
 
-## Tactile — /rh/tactile (sr_robot_msgs/BiotacAll) — VERIFIED LIVE 2026-07-11
-The `shadow_touchlab_translator`/`tactile_relay` nodes `my_policy_node.py` reads tactile
-through are **not running by default** (confirmed: no `/shadow_touchlab_translator/*`
-topics present in `rostopic list`). We record the underlying hardware topic directly
-instead — no extra nodes to launch, no dependency on those translators being up.
+## Tactile — /shadow_touchlab_translator/calibrated — VERIFIED LIVE 2026-07-12
+**Correction from an earlier version of this section**: we first recorded the raw
+hardware topic `/rh/tactile` directly to avoid depending on extra nodes. That gives raw
+ADC electrode counts, NOT the calibrated signal `my_policy_node.py` actually uses (it
+reads `/shadow_touchlab_translator/calibrated_flat`, downstream of the `calibrated`
+topic here). We switched to recording the real calibrated topic instead, which requires
+the `shadow_touchlab_translator` node running — `record_episode.sh` now auto-launches
+it (`roslaunch touchlab_driver_ros translator.launch`) if not already up, idempotently
+(a multi-episode session only pays the launch cost once).
 
-```
-header: {seq, stamp, frame_id: "rh_distal"}
-tactiles: [5]   # Biotac struct per finger, firmware order: ff, mf, rf, lf, th
-  each Biotac: pac0, pac1, pac[20], pdc, tac, tdc, electrodes[19]
-```
-Live-sampled facts:
-- `electrodes` carries **19** raw values per finger on the wire (the "16" only appears
-  after `shadow_touchlab_translator`'s own truncation via its `n_taxels` launch param —
-  we replicate that same truncation ourselves: `electrodes[:16]`).
-- `tactiles[3]` (**lf**, little finger) reads **all-zero** live — confirmed, this hand
-  has no little finger. Dropped entirely in our pipeline (not zero-padded).
-- Real fingers ff/mf/rf/th (`tactiles[0,1,2,4]`) show live baseline readings in the
-  ~700-1000 range (unloaded/at-rest).
-- Publish rate: **~100 Hz** (measured directly via `rostopic hz /rh/tactile`, std dev
-  0.0003s — a clean, steady rate, comfortably above the 60Hz dataset grid).
+The underlying hardware topic is still `/rh/tactile` (`sr_robot_msgs/BiotacAll`,
+`tactiles[5]`, firmware order ff/mf/rf/lf/th, `Biotac.electrodes[19]` raw values/finger,
+`lf` confirmed all-zero live — no little finger on this hand). The translator node
+subscribes that, takes `electrodes[:16]` per finger (`n_taxels=16` launch param) x10.0
+scale, then runs it through `touchlab_comm_py`'s calibration (`self.com.translate()`,
+using `/ros1/calibration/uoe-default.bin`) and auto-zeros to the first reading it sees
+after starting. It publishes two topics (both `touchlab_msgs/Float64MultiArrayStamped`):
+- `.../raw` — 80 values (5 fingers x 16 taxels, the same x10-scaled electrode data).
+- `.../calibrated` — **240 values**, confirmed live: only 4 were non-zero at rest, and
+  all 4 sat at index ≡2 (mod 3) within their triplet. So this is 80 taxel positions x 3
+  components each, and only the 3rd component per taxel (`data[2::3]`) is meaningfully
+  non-zero at rest (components 0/1 read ~0 untouched — likely shear vs. normal force).
+  This confirms the `raw[2::3]` convention already used by `my_policy_node.py`/
+  `run_simgap_hardware.py` for their own (differently-sourced) tactile topic.
+- Publish rate: **~100 Hz** (measured directly via `rostopic hz`, though jitter is
+  higher than the raw hardware topic — std dev ~0.015s vs. 0.0003s — from the
+  translator's own per-message calibration compute).
 
-`preprocess/parse_bag.py` takes `electrodes[:16]` from each of the 4 real fingers
-(indices 0,1,2,4) and concatenates them in that order (ff,mf,rf,th) into a flat 64-value
-row per message → `gt_tactile` `[T,64]` after resampling. No summing/clustering/EMA/
-baseline-subtraction is applied (that's `my_policy_node.py`'s own policy-observation
-choice, out of scope here — this pipeline keeps full 64-taxel resolution).
+`preprocess/parse_bag.py` unpacks `calibrated`'s 240 values via `[2::3]` to 80 per-taxel
+values (firmware order ff/mf/rf/lf/th), then keeps the 4 REAL fingers (ff,mf,rf,th; `lf`
+slice `[48:64]` dropped entirely, not zero-padded) → a flat 64-value row per message →
+`gt_tactile [T,64]` after resampling. No summing/clustering/EMA/baseline-subtraction on
+top of that — this pipeline keeps full 64-taxel resolution (that further reduction is
+`my_policy_node.py`'s own policy-observation choice, out of scope here).
 
 ## What's raw hardware data vs. computed by our pipeline
 Every field listed above (`/joint_states.position/velocity/effort`, and the controller's
@@ -106,7 +113,7 @@ new value):
 | `gt_pos` | `/joint_states.position` | no — raw, resampled only |
 | `gt_vel` | `/joint_states.velocity` | no — raw, resampled only |
 | `gt_effort` | `/joint_states.effort` | no — raw, resampled only |
-| `gt_tactile` | `/rh/tactile` (`sr_robot_msgs/BiotacAll`), `electrodes[:16]` per real finger | no — raw, resampled only (finger selection/truncation matches `shadow_touchlab_translator`'s own convention, not a derived value) |
+| `gt_tactile` | `/shadow_touchlab_translator/calibrated`, `[2::3]`-unpacked per real finger | no — raw passthrough of the translator node's own calibrated output, resampled only (the `[2::3]` unpack recovers the meaningful component per taxel from the message's own 3-per-taxel packing; the calibration itself is computed by `shadow_touchlab_translator`/`touchlab_comm_py`, not by this repo) |
 | `action` | controller `set_point` | no — raw, resampled only |
 | `act_pos` | controller `process_value` | no — raw, resampled only |
 | `act_vel` | controller `process_value_dot` | no — raw, resampled only |

@@ -61,17 +61,22 @@ def parse_bag(path: str | pathlib.Path) -> dict:
     state_topic_by_act = {a: cl.controller_state_topic(a) for a in acts}
     wanted = [js_topic, tac_topic] + list(state_topic_by_act.values())
 
-    # BiotacAll.tactiles is a fixed 5-element array in firmware order
-    # ff(0), mf(1), rf(2), lf(3), th(4). lf doesn't exist on this hand (confirmed
-    # live: reads all-zero) and is dropped entirely -- not zero-padded. Each
-    # Biotac.electrodes carries 19 raw values on the wire; take the first 16 per
-    # real finger, matching shadow_touchlab_translator's own n_taxels=16 truncation.
-    REAL_FINGER_IDX = (0, 1, 2, 4)  # ff, mf, rf, th -- skips lf (index 3)
-    N_TAXELS_PER_FINGER = 16
+    # shadow_touchlab_translator/calibrated is 240 values = 80 taxel positions
+    # (5 fingers x 16 taxels, firmware order ff/mf/rf/lf/th) x 3 components each.
+    # Only the 3rd component per taxel (index 2, 5, 8, ... -> data[2::3]) is
+    # meaningfully non-zero at rest (confirmed live: the other 2 components read
+    # zero when nothing touches the sensor -- likely shear vs. normal force),
+    # matching the raw[2::3] convention already used by my_policy_node.py /
+    # run_simgap_hardware.py. After unpacking to 80 per-taxel values, keep the 4
+    # REAL fingers -- lf (slice 48:64) doesn't exist on this hand and is dropped
+    # entirely, not zero-padded.
+    N_RAW_CALIBRATED = 240
+    REAL_FINGER_SLICES = [slice(0, 16), slice(16, 32), slice(32, 48), slice(64, 80)]  # ff,mf,rf,th
 
     js_t, js_pos, js_vel, js_eff = [], [], [], []
     js_name: list[str] | None = None
     tac_t, tac_val = [], []
+    tac_len_checked = False
     ctrl: dict[str, dict[str, list]] = {
         a: {k: [] for k in ("t", "set_point", "process_value",
                              "process_value_dot", "error", "command")}
@@ -91,10 +96,17 @@ def parse_bag(path: str | pathlib.Path) -> dict:
                 js_vel.append(msg.velocity)
                 js_eff.append(msg.effort)
             elif topic == tac_topic:
+                raw240 = np.asarray(msg.multi_array.data, float)
+                if not tac_len_checked:
+                    assert raw240.size == N_RAW_CALIBRATED, (
+                        f"{tac_topic} message has {raw240.size} values, expected "
+                        f"{N_RAW_CALIBRATED} -- shadow_touchlab_translator's output "
+                        "shape may have changed; re-verify the [2::3] unpacking live "
+                        "before trusting this parse.")
+                    tac_len_checked = True
                 tac_t.append(msg.header.stamp.to_sec())
-                row = np.concatenate([
-                    np.asarray(msg.tactiles[i].electrodes[:N_TAXELS_PER_FINGER], float)
-                    for i in REAL_FINGER_IDX])
+                taxels80 = raw240[2::3]
+                row = np.concatenate([taxels80[sl] for sl in REAL_FINGER_SLICES])
                 tac_val.append(row)
             else:
                 a = topic_to_act[topic]
@@ -109,7 +121,7 @@ def parse_bag(path: str | pathlib.Path) -> dict:
     if js_name is None:
         raise RuntimeError(f"{path}: no {js_topic} messages found")
 
-    n_taxels_total = len(REAL_FINGER_IDX) * N_TAXELS_PER_FINGER
+    n_taxels_total = sum(sl.stop - sl.start for sl in REAL_FINGER_SLICES)
     tac_t_arr = np.asarray(tac_t, float)
     tac_val_arr = (np.asarray(tac_val, float) if tac_val
                    else np.zeros((0, n_taxels_total)))
