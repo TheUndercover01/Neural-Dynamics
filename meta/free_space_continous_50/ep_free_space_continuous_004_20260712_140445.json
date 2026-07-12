@@ -1,0 +1,298 @@
+{
+  "session_id": "free_space_continous_50",
+  "episode_id": "ep_free_space_continuous_004",
+  "timestamp": "20260712_140445",
+  "bag": "ep_free_space_continuous_004_20260712_140445.bag",
+  "duration_sec": 65,
+  "excitation": "free_space",
+  "control_mode": "PWM",
+  "warmup": "warm",
+  "driver_version": "unknown",
+  "operator_notes": "",
+  "ros_master_uri": "http://localhost:11311",
+  "recorded_topics": [
+    "/joint_states",
+    "/shadow_touchlab_translator/calibrated",
+    "/sh_rh_ffj0_position_controller/state",
+    "/sh_rh_ffj3_position_controller/state",
+    "/sh_rh_ffj4_position_controller/state",
+    "/sh_rh_mfj0_position_controller/state",
+    "/sh_rh_mfj3_position_controller/state",
+    "/sh_rh_mfj4_position_controller/state",
+    "/sh_rh_rfj0_position_controller/state",
+    "/sh_rh_rfj3_position_controller/state",
+    "/sh_rh_rfj4_position_controller/state",
+    "/sh_rh_thj1_position_controller/state",
+    "/sh_rh_thj2_position_controller/state",
+    "/sh_rh_thj4_position_controller/state",
+    "/sh_rh_thj5_position_controller/state",
+    "/diagnostics"
+  ],
+  "regime": "free_space_continuous",
+  "families": [
+    "ou_walk",
+    "multisine",
+    "chirp"
+  ],
+  "rng_seed": 234620059,
+  "duration_s": 54.35324141058449,
+  "family_seeds": {
+    "ou_walk": 413521807,
+    "multisine": 1401359555,
+    "chirp": 42414773
+  },
+  "command_space": "actuator_order",
+  "publish_rate_hz": 60.0,
+  "max_delta_rad": 0.07310533592055539,
+  "loop_jitter_ms": {
+    "mean": 0.10957389285457941,
+    "p50": 0.08726119995117188,
+    "p95": 0.20933151245117188,
+    "max": 0.7212162017822266
+  },
+  "loop_overruns": 3381,
+  "per_channel_delta_max": {
+    "rh_FFJ0": 0.03156796351188795,
+    "rh_FFJ3": 0.04154001493914139,
+    "rh_FFJ4": 0.023205120283144753,
+    "rh_MFJ0": 0.0449079926562006,
+    "rh_MFJ3": 0.02762520570882332,
+    "rh_MFJ4": 0.013949266357202117,
+    "rh_RFJ0": 0.041662809184617844,
+    "rh_RFJ3": 0.02778653058133096,
+    "rh_RFJ4": 0.024405371435994843,
+    "rh_THJ1": 0.025586992746529647,
+    "rh_THJ2": 0.032438207168508384,
+    "rh_THJ4": 0.02994963939360884,
+    "rh_THJ5": 0.02943934486144774
+  },
+  "per_channel_delta_p95": {
+    "rh_FFJ0": 0.02030323701065264,
+    "rh_FFJ3": 0.02530879308243181,
+    "rh_FFJ4": 0.01610846476845367,
+    "rh_MFJ0": 0.02577333011185751,
+    "rh_MFJ3": 0.02000761437727847,
+    "rh_MFJ4": 0.0083360142269095,
+    "rh_RFJ0": 0.026740419528885187,
+    "rh_RFJ3": 0.019137418371177547,
+    "rh_RFJ4": 0.01779513975848428,
+    "rh_THJ1": 0.018400760734556508,
+    "rh_THJ2": 0.020430000640636284,
+    "rh_THJ4": 0.018730058610688428,
+    "rh_THJ5": 0.018904674326159828
+  },
+  "step_events": [],
+  "native_rates_hz": {
+    "joint_states": 125,
+    "controller_state": 87,
+    "diagnostics": 2
+  },
+  "home_pose_actuator": {
+    "rh_FFJ0": 1.74,
+    "rh_FFJ3": 0.65,
+    "rh_FFJ4": -0.33513600000000004,
+    "rh_MFJ0": 1.74,
+    "rh_MFJ3": 0.65,
+    "rh_MFJ4": 0.0,
+    "rh_RFJ0": 1.74,
+    "rh_RFJ3": 0.65,
+    "rh_RFJ4": -0.33513600000000004,
+    "rh_THJ1": 0.0,
+    "rh_THJ2": 0.35,
+    "rh_THJ4": 0.5,
+    "rh_THJ5": 0.4
+  },
+  "home_settle_s": 4.0,
+  "pre_episode_setpoint_gap": {
+    "process_value": {
+      "rh_FFJ0": 1.7334187161534893,
+      "rh_FFJ3": 0.6407947412596954,
+      "rh_FFJ4": -0.33629068911185067,
+      "rh_MFJ0": 1.7251712094639855,
+      "rh_MFJ3": 0.6427436242216941,
+      "rh_MFJ4": -0.0037906433549793127,
+      "rh_RFJ0": 1.7337181616174495,
+      "rh_RFJ3": 0.6569345599949105,
+      "rh_RFJ4": -0.3379944181611709,
+      "rh_THJ1": 0.009879980339721702,
+      "rh_THJ2": 0.3444974947817871,
+      "rh_THJ4": 0.5028348679392235,
+      "rh_THJ5": 0.39467742781228715
+    },
+    "set_point": {
+      "rh_FFJ0": 1.74,
+      "rh_FFJ3": 0.65,
+      "rh_FFJ4": -0.33513600000000004,
+      "rh_MFJ0": 1.74,
+      "rh_MFJ3": 0.65,
+      "rh_MFJ4": 0.0,
+      "rh_RFJ0": 1.74,
+      "rh_RFJ3": 0.65,
+      "rh_RFJ4": -0.33513600000000004,
+      "rh_THJ1": 0.0,
+      "rh_THJ2": 0.35,
+      "rh_THJ4": 0.5,
+      "rh_THJ5": 0.4
+    },
+    "gap": {
+      "rh_FFJ0": 0.006581283846510688,
+      "rh_FFJ3": 0.009205258740304645,
+      "rh_FFJ4": 0.0011546891118506264,
+      "rh_MFJ0": 0.014828790536014491,
+      "rh_MFJ3": 0.007256375778305957,
+      "rh_MFJ4": 0.0037906433549793127,
+      "rh_RFJ0": 0.006281838382550475,
+      "rh_RFJ3": 0.006934559994910439,
+      "rh_RFJ4": 0.002858418161170828,
+      "rh_THJ1": 0.009879980339721702,
+      "rh_THJ2": 0.005502505218212883,
+      "rh_THJ4": 0.0028348679392234954,
+      "rh_THJ5": 0.005322572187712871
+    },
+    "max_gap_rad": 0.014828790536014491
+  },
+  "aligned_npz": "/tmp/rangecheck/ep_free_space_continuous_004_20260712_140445.aligned.npz",
+  "aligned": {
+    "dataset_rate": 60.0,
+    "n_grid": 3825,
+    "n_valid": 3825,
+    "n_segments": 1,
+    "parse_report": {
+      "joint_states": {
+        "n": 8092,
+        "duration_s": 64.7279999256134,
+        "rate_hz": 125.00000014365227,
+        "dt_median_ms": 7.999897003173828,
+        "dt_p99_ms": 8.00013542175293,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "tactile": {
+        "n": 6474,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.99999997053378,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_FFJ0": {
+        "n": 6474,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.99999997053378,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_FFJ3": {
+        "n": 6474,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.99999997053378,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_FFJ4": {
+        "n": 6474,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.99999997053378,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_MFJ0": {
+        "n": 6474,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.99999997053378,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_MFJ3": {
+        "n": 6473,
+        "duration_s": 64.73000001907349,
+        "rate_hz": 99.98455118326812,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_MFJ4": {
+        "n": 6375,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.99999998503806,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_RFJ0": {
+        "n": 6374,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.98431124955249,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_RFJ3": {
+        "n": 6372,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.95293377858134,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_RFJ4": {
+        "n": 6391,
+        "duration_s": 63.89999985694885,
+        "rate_hz": 100.0000002238672,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_THJ1": {
+        "n": 6374,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.98431124955249,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_THJ2": {
+        "n": 6375,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.99999998503806,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_THJ4": {
+        "n": 6375,
+        "duration_s": 63.74000000953674,
+        "rate_hz": 99.99999998503806,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      },
+      "rh_THJ5": {
+        "n": 6390,
+        "duration_s": 63.89999985694885,
+        "rate_hz": 99.984350771563,
+        "dt_median_ms": 9.999990463256836,
+        "dt_p99_ms": 10.000228881835938,
+        "non_monotonic": 0,
+        "gaps": 0
+      }
+    }
+  }
+}

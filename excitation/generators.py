@@ -94,13 +94,19 @@ def ou_walk(duration_s, joint_limits, rng_seed, *, theta=None, sigma_frac=None, 
 # =========================================================================================
 
 def multisine(duration_s, joint_limits, rng_seed, *, n_components=None, freq_range=None,
-              amp_frac=None, rate=None, channels=None):
+              amp_frac=None, rate=None, channels=None, center=None):
     """Sum of 3-6 (config-bounded) sines per channel, random freq/phase/amplitude split.
 
     Each component's amplitude is capped so amp * 2*pi*freq (its max slope) cannot push
     the per-frame delta past its share of CONTINUOUS_SLEW_FRAC * step_thresh — otherwise
     a handful of fast, large-amplitude components could sum to a slope that trips
     detect_steps(), silently turning a "continuous" family into false step events.
+
+    `center` (per-channel array, default: joint midpoint) is what the sines oscillate
+    around -- compose.py randomizes this per episode (excitation.config.CENTER_FRAC_RANGE)
+    so different episodes explore different regions of the range rather than all
+    orbiting the identical midpoint; final np.clip() still guarantees legality regardless
+    of how center+amplitude combine.
     """
     rate = rate or ecfg.PUBLISH_RATE_HZ
     dt = 1.0 / rate
@@ -112,6 +118,7 @@ def multisine(duration_s, joint_limits, rng_seed, *, n_components=None, freq_ran
     freq_range = freq_range or ecfg.MULTISINE_FREQ_HZ_RANGE
 
     midpoint = 0.5 * (lower + upper)
+    center = midpoint if center is None else np.broadcast_to(center, (n,)).astype(float)
     half_range = 0.5 * (upper - lower)
     t = np.arange(T) / rate
 
@@ -134,7 +141,7 @@ def multisine(duration_s, joint_limits, rng_seed, *, n_components=None, freq_ran
             slew_cap_amp = budget_per_component / max(2 * np.pi * freqs[j] * dt, 1e-9)
             amp_j = min(desired_amp, slew_cap_amp)
             signal += amp_j * np.sin(2 * np.pi * freqs[j] * t + phases[j])
-        traj[:, c] = midpoint[c] + signal
+        traj[:, c] = center[c] + signal
     return np.clip(traj, lower, upper)
 
 
@@ -143,11 +150,14 @@ def multisine(duration_s, joint_limits, rng_seed, *, n_components=None, freq_ran
 # =========================================================================================
 
 def chirp(duration_s, joint_limits, rng_seed, *, freq_range=None, amp_frac=None,
-          sweep="linear", rate=None, channels=None):
+          sweep="linear", rate=None, channels=None, center=None):
     """Linear or log frequency sweep f0->f1 per channel. Each channel gets an
     independent random start phase (`phase0`) so joints don't sweep in lockstep.
     Amplitude is capped against the sweep's max instantaneous slope, same rationale
     as multisine's per-component cap.
+
+    `center` (per-channel array, default: joint midpoint) is what the sweep oscillates
+    around -- see multisine()'s docstring for why compose.py randomizes this per episode.
     """
     rate = rate or ecfg.PUBLISH_RATE_HZ
     dt = 1.0 / rate
@@ -161,6 +171,7 @@ def chirp(duration_s, joint_limits, rng_seed, *, freq_range=None, amp_frac=None,
     duration = T / rate
 
     midpoint = 0.5 * (lower + upper)
+    center = midpoint if center is None else np.broadcast_to(center, (n,)).astype(float)
     half_range = 0.5 * (upper - lower)
     t = np.arange(T) / rate
 
@@ -180,7 +191,7 @@ def chirp(duration_s, joint_limits, rng_seed, *, freq_range=None, amp_frac=None,
             phase = 2 * np.pi * f0 * (k ** t - 1.0) / np.log(k)
         else:
             phase = 2 * np.pi * (f0 * t + 0.5 * (f1 - f0) * t ** 2 / duration)
-        traj[:, c] = midpoint[c] + amp * np.sin(phase + phase0)
+        traj[:, c] = center[c] + amp * np.sin(phase + phase0)
     return np.clip(traj, lower, upper)
 
 
@@ -282,6 +293,66 @@ def step_schedule(duration_s, joint_limits, rng_seed, *, rate=None, channels=Non
                             "post": float(post), "magnitude": float(post - pre)})
     events.sort(key=lambda e: e["frame"])
     return events
+
+
+# =========================================================================================
+# sweep — deterministic full-range ramp: start -> lower extreme -> upper extreme -> start
+# =========================================================================================
+
+def sweep(duration_s, joint_limits, rng_seed, *, rate=None, channels=None,
+          start=None, dwell_s=None):
+    """Per channel: ramp from `start` down to the lower extreme, dwell, ramp up to the
+    upper extreme, dwell, ramp back to `start`. Ramped at RANGE_SWEEP_SLEW_FRAC *
+    CONTINUOUS_SLEW_FRAC * step_thresh -- gentler than the cap the stochastic continuous
+    families use, so like them it always reads as continuous motion to detect_steps(),
+    never a step.
+
+    Unlike every other generator here, this one is NOT meant to be handed a
+    stochastically-drawn duration_s: it needs excitation.config.range_sweep_duration_s(),
+    sized to fit this exact ramp+dwell schedule for the target channel's own span. Too
+    short a duration_s silently truncates the sweep (the `write_len` clamps below) rather
+    than erroring, so getting that right is the caller's job, not this function's.
+    `rng_seed` is accepted for interface parity with the other generators; unused here --
+    the whole point of this family is a deterministic, not probabilistic, COMMAND to
+    visit both extremes (whether the joint physically gets there depends on the other
+    joints' held pose not obstructing it -- see excitation/config.py's REGIME_FAMILIES
+    comment on range_sweep).
+    """
+    rate = rate or ecfg.PUBLISH_RATE_HZ
+    lower, upper = _unpack_limits(joint_limits)
+    n = lower.size
+    T = int(round(duration_s * rate))
+    channels = _resolve_channels(channels, n)
+    dwell_s = ecfg.RANGE_SWEEP_DWELL_S if dwell_s is None else dwell_s
+    dwell_frames = max(1, int(round(dwell_s * rate)))
+    max_delta = ecfg.RANGE_SWEEP_SLEW_FRAC * ecfg.CONTINUOUS_SLEW_FRAC * _step_thresh()
+    midpoint = 0.5 * (lower + upper)
+    start_arr = (midpoint.copy() if start is None
+                 else np.broadcast_to(start, (n,)).astype(float).copy())
+
+    traj = np.broadcast_to(midpoint, (T, n)).copy()
+    for c in channels:
+        s = start_arr[c]
+        frame = 0
+        value = s
+        for target, dwell_after in ((lower[c], True), (upper[c], True), (s, False)):
+            if frame >= T:
+                break
+            ramp_frames = max(1, int(np.ceil(abs(target - value) / max_delta)))
+            full_ramp = np.linspace(value, target, ramp_frames, endpoint=False)
+            write_end = min(frame + ramp_frames, T)
+            write_len = write_end - frame
+            if write_len > 0:
+                traj[frame:write_end, c] = full_ramp[:write_len]
+            frame = write_end
+            value = target
+            if dwell_after and frame < T:
+                dwell_end = min(frame + dwell_frames, T)
+                traj[frame:dwell_end, c] = value
+                frame = dwell_end
+        if frame < T:
+            traj[frame:T, c] = value
+    return np.clip(traj, lower, upper)
 
 
 # =========================================================================================

@@ -12,6 +12,8 @@ from __future__ import annotations
 import pathlib
 import sys
 
+import numpy as np
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import config_lib as cl  # noqa: E402
 
@@ -49,7 +51,6 @@ def home_pose_actuator():
     this package otherwise avoids via the same 2% safety inset. Commanding a hard stop
     every single episode (this pose is held before EVERY recording) risks unnecessary
     wear, so it gets the same treatment as everything else."""
-    import numpy as np
     joints = cl.load_joints()
     acts = list(joints["actuator_order"])
     p2a = dict(joints.get("policy_to_actuator", {}))
@@ -59,6 +60,37 @@ def home_pose_actuator():
         pose[acts.index(act)] = val * 2.0 if pj in _COUPLED_POLICY_JOINTS else val
     lower, upper = effective_command_limits()
     return np.clip(pose, lower, upper)
+
+
+# Fraction of each joint's full [lower,upper] command span that the per-episode start
+# pose is allowed to jitter away from home_pose_actuator(), independently per joint.
+# "Bounded jitter around the known-safe baoding-ball pose" -- deliberately NOT a fully
+# independent-per-joint random pose (risks unnatural/colliding configurations, e.g. the
+# thumb overlapping the fingers, since nothing coordinates the joints toward a sensible
+# hand shape) and not a small fixed preset-pose set either (safer, but far less diverse).
+# Picked so every episode starts somewhere genuinely different while staying close
+# enough to the baoding-ball shape to stay a plausible, collision-free grasp.
+START_POSE_JITTER_FRAC = 0.20
+
+
+def randomized_start_pose(rng_seed):
+    """(13,) radians, actuator_order -- this episode's actual pre-trajectory reset/settle
+    pose: home_pose_actuator() jittered independently per joint by up to
+    +-START_POSE_JITTER_FRAC of that joint's full command span, clipped to
+    effective_command_limits(). Previously every episode reset to the exact same fixed
+    pose; this gives each one a different starting hand configuration instead, which is
+    real additional state-space coverage for the actuator-net (not just trajectory
+    shape). Deterministic from rng_seed via its own fresh Generator instance -- doesn't
+    share state with compose_episode()'s internal RNG, so it doesn't perturb channel
+    allocation / family_seeds reproducibility even though both are seeded from the same
+    per-episode seed value."""
+    lower, upper = effective_command_limits()
+    base = home_pose_actuator()
+    span = upper - lower
+    rng = np.random.default_rng(rng_seed)
+    jitter = rng.uniform(-1.0, 1.0, size=len(base)) * START_POSE_JITTER_FRAC * span
+    return np.clip(base + jitter, lower, upper)
+
 
 # Native topic rates (informational only — rosbag has no rate/downsample setting; it
 # always records every message a topic publishes. Stored in the meta/ JSON sidecar as provenance).
@@ -73,7 +105,13 @@ SAFETY_INSET_FRAC = 0.02
 # Per-episode max_delta (rad/frame) is sampled from this range: gentle -> aggressive.
 # Top of the range is pinned to latency.yaml's step_thresh (see compose.py) so the
 # limiter can distinguish "continuous motion" from "deliberate step" by construction.
-MAX_DELTA_RANGE = (0.002, 0.1)
+# Floor raised 0.002->0.06: with the old floor, a uniform draw over (0.002, 0.1) landed
+# BELOW the continuous families' own construction cap (CONTINUOUS_SLEW_FRAC * step_thresh
+# = 0.065, see below) about 64% of the time -- i.e. most episodes were silently
+# bottlenecked well under the achievable speed by the random draw alone, not by any
+# deliberate choice. Confirmed on real hardware: 3 of 4 episodes in one run sampled
+# 0.023/0.036/0.039 (all well under 0.065) and only the 4th (0.073) reached true speed.
+MAX_DELTA_RANGE = (0.06, 0.1)
 
 # --- Regime -> family mix (weights need not sum to 1; compose.py normalizes) -----------
 # NOTE: "free_space" always carves out >=1 channel for the `steps` family whenever
@@ -90,6 +128,28 @@ REGIME_FAMILIES = {
     "perturbation":          {"static_holds": 1.0, "steps": 1.0},
     "loaded_hold":           {"static_holds": 1.0, "steps": 1.0},
     "step_probe":            {"steps": 1.0},
+    # One joint excited (continuous only -- pair with step_probe + --joint for pure
+    # per-joint steps instead), every other joint held fixed at home_pose_actuator()
+    # for the whole episode -- see run_episode.py's --joint and compose.py's
+    # active_channels/inactive_value. No "steps" key: with only 1 active channel,
+    # has_steps+continuous_families can't split into disjoint non-empty groups (see
+    # compose.py:_allocate_channels), so this stays continuous-only by design.
+    "single_joint":          {"ou_walk": 1.0, "multisine": 1.0, "chirp": 1.0},
+    # Deterministic full-range ramp: start-pose -> lower extreme -> upper extreme -> back
+    # to start-pose, on ONE actuator (requires --joint, see run_episode.py), every other
+    # joint held at that episode's start pose. Unlike single_joint's stochastic
+    # excitation (which only reaches a healthy fraction of the range on any given
+    # episode, per test_generators.py check #9), this COMMANDS the target joint to both
+    # true extremes at least once -- whether it physically GETS there depends on the
+    # other joints' held pose not obstructing it (confirmed on real hardware: a jittered
+    # neighboring finger can mechanically block full flexion; act_err correctly shows
+    # the resulting stall rather than silently reporting a false position -- that's a
+    # legitimate, informative recording, not a bug, so nothing here tries to prevent it).
+    # Its own duration_s is computed by
+    # range_sweep_duration_s() below, not drawn from DURATION_RANGE_S -- a random
+    # duration could be too short to safely reach the extreme, silently truncating the
+    # sweep and defeating the point.
+    "range_sweep":           {"sweep": 1.0},
 }
 
 # Per-episode duration (when --duration isn't given) is drawn uniformly from this range,
@@ -107,19 +167,46 @@ REGIME_TO_EXCITATION = {
     "perturbation": "manual_perturbation",
     "loaded_hold": "loaded",
     "step_probe": "free_space",
+    "single_joint": "free_space",
+    "range_sweep": "free_space",
 }
 
 # --- Generator parameter bounds (randomized per-episode within these) ------------------
+# OU_SIGMA_FRAC_RANGE / MULTISINE_AMP_FRAC_RANGE / CHIRP_AMP_FRAC_RANGE floors raised
+# substantially (were 0.02/0.1/0.3). Measured on real hardware with the OLD values: even
+# the fastest of 4 free_space_continuous episodes only covered 16-30% of most joints'
+# true range (e.g. rh_FFJ0 covered 1.33-1.81 rad out of its true 0.06-3.08 rad range).
+# Two compounding causes, both addressed here and in compose.py:
+#  1. These fractions feed generators.py's per-component/per-sample amplitude, which is
+#     ALSO capped by the frame-rate slew budget (CONTINUOUS_SLEW_FRAC * step_thresh) --
+#     so raising the fraction mostly helps LOW-frequency components/OU's persistent
+#     drift (which aren't slew-limited), which is exactly the kind of large, slow
+#     excursion needed to reach the true range extremes; fast/small jitter stays safely
+#     capped by the slew budget regardless, same as before.
+#  2. compose.py used to blend ou_walk+multisine+chirp on the SAME channels via a
+#     weighted AVERAGE, which mathematically shrinks the combined amplitude whenever the
+#     3 signals aren't in phase -- fixed by giving each continuous family its OWN
+#     EXCLUSIVE channels instead (see compose.py:_allocate_channels), so these fractions
+#     are no longer diluted by averaging against other families.
 OU_THETA_RANGE = (0.05, 2.0)          # mean-reversion rate, 1/s
-OU_SIGMA_FRAC_RANGE = (0.02, 0.15)    # noise std, fraction of joint half-range
+OU_SIGMA_FRAC_RANGE = (0.15, 0.40)    # noise std, fraction of joint half-range
 MULTISINE_N_COMPONENTS_RANGE = (3, 6)
 MULTISINE_FREQ_HZ_RANGE = (0.05, 1.5)
-MULTISINE_AMP_FRAC_RANGE = (0.1, 0.8)      # sum of component amplitudes, fraction of half-range
+MULTISINE_AMP_FRAC_RANGE = (0.5, 0.95)     # sum of component amplitudes, fraction of half-range
 CHIRP_FREQ_HZ_RANGE = (0.05, 2.0)
-CHIRP_AMP_FRAC_RANGE = (0.3, 0.9)
+CHIRP_AMP_FRAC_RANGE = (0.6, 0.95)
 STEP_HOLD_S_RANGE = (0.8, 1.5)
 STEP_MAGNITUDE_FRAC_RANGE = (0.15, 0.8)     # fraction of joint range, guaranteed > step_thresh
 STATIC_HOLD_DWELL_S_RANGE = (1.0, 4.0)
+
+# Per-episode, per-channel anchor point for ou_walk/multisine/chirp is now randomized
+# within this fraction of [lower,upper] (was: always the exact midpoint, every episode,
+# every channel) -- see compose.py's compose_episode(). This is the fix for "looks like
+# the same trajectory every time": with a fixed midpoint anchor, every episode wiggled
+# around the identical center point regardless of seed, so different episodes collectively
+# never explored beyond a narrow band near center. Kept inset from the true 0/1 edges so
+# amplitude still has room to move in both directions from wherever the anchor lands.
+CENTER_FRAC_RANGE = (0.15, 0.85)
 
 # Fraction of latency.yaml's step_thresh that continuous families (ou_walk, multisine,
 # chirp) cap their per-frame |delta| to, BY CONSTRUCTION. Needed because naive parameter
@@ -132,6 +219,34 @@ STATIC_HOLD_DWELL_S_RANGE = (1.0, 4.0)
 # rad/s limit most other joints have (intentional: exploring the saturation regime is
 # useful actuator-net training signal, not just the achievable range).
 CONTINUOUS_SLEW_FRAC = 0.65
+
+# --- range_sweep regime ----------------------------------------------------------------
+# Deliberately GENTLER than CONTINUOUS_SLEW_FRAC's own cap (0.65x step_thresh): this is a
+# repeatable, unhurried ramp whose whole point is reliably reaching the true extreme, not
+# the fastest legal motion. Also keeps it comfortably under compose.py's separate
+# rate_limit() max_delta draw (MAX_DELTA_RANGE, floor 0.06 rad/frame) so that second
+# clamp never further slows/truncates the sweep -- 0.5 * 0.65 * 0.1 = 0.0325 rad/frame,
+# well under 0.06.
+RANGE_SWEEP_SLEW_FRAC = 0.5
+RANGE_SWEEP_DWELL_S = 2.0    # hold at each extreme -- long enough to be an unambiguous
+                             # at-the-limit sample, not just a momentary transient
+RANGE_SWEEP_MARGIN = 1.1    # small buffer over the exact computed ramp time (rounding safety)
+
+
+def range_sweep_duration_s(channel_idx: int) -> float:
+    """Exact time needed for generators.sweep() to safely ramp ONE channel start-pose ->
+    lower extreme -> upper extreme -> back to start-pose, plus two dwells at the
+    extremes. Total ramp DISTANCE is exactly 2x that channel's full span regardless of
+    where the start pose sits within [lower, upper]: |s-lo| + (up-lo) + |up-s| == span +
+    span for any s in [lo, up], since |s-lo| + |up-s| == up-lo when s is between them.
+    Used instead of the regime's usual random DURATION_RANGE_S draw (see
+    run_episode.py) -- see range_sweep's REGIME_FAMILIES comment for why."""
+    lower, upper = effective_command_limits()
+    span = float(upper[channel_idx] - lower[channel_idx])
+    step_thresh = float(cl.load_latency()["step_thresh"])
+    slew_rad_per_s = RANGE_SWEEP_SLEW_FRAC * CONTINUOUS_SLEW_FRAC * step_thresh * PUBLISH_RATE_HZ
+    ramp_time = RANGE_SWEEP_MARGIN * (2.0 * span) / slew_rad_per_s
+    return ramp_time + 2 * RANGE_SWEEP_DWELL_S
 
 
 def effective_command_limits():

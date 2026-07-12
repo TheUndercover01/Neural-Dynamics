@@ -38,6 +38,7 @@ CONTINUOUS_FAMILIES = {
     "multisine": gen.multisine,
     "chirp": gen.chirp,
     "static_holds": gen.static_holds,
+    "sweep": gen.sweep,
 }
 ALL_FAMILIES = {**CONTINUOUS_FAMILIES, "steps": gen.steps}
 
@@ -202,7 +203,96 @@ def main() -> int:
                regime_out_of_limits == 0, f"{regime_out_of_limits} seed(s) out of limits")
 
     # ---------------------------------------------------------------------------------
-    # 9. Plots (best-effort, not fatal)
+    # 9. Realistic per-EPISODE range coverage. Check #4 above concatenates 25
+    #    INDEPENDENT single-family draws across many seeds and checks their UNION's
+    #    coverage -- that methodology completely missed a real dilution bug: an earlier
+    #    compose_episode() blended ou_walk+multisine+chirp via weighted average on the
+    #    SAME channels, which is mathematically smaller than any one family's own
+    #    amplitude budget whenever the signals aren't in phase. Confirmed on real
+    #    hardware before the fix: even the fastest of 4 real free_space_continuous
+    #    episodes only covered 16-30% of most joints' true range. This check instead
+    #    composes actual episodes (compose_episode(), identical to production use) and
+    #    requires a healthy MEDIAN coverage across continuous channels in a SINGLE
+    #    episode -- the thing that actually gets recorded to hardware.
+    # ---------------------------------------------------------------------------------
+    for regime in ("free_space", "free_space_continuous"):
+        families = ecfg.REGIME_FAMILIES[regime]
+        fam_names = list(families.keys())
+        coverages = []
+        for seed in COMPOSE_SEEDS:
+            traj, _events, info = compose.compose_episode(
+                regime, fam_names, families, rng_seed=seed, duration_s=DURATION_S)
+            cont_ch = info["continuous_channels"]
+            if not cont_ch:
+                continue
+            ch_span = (upper - lower)[cont_ch]
+            obs_span = traj[:, cont_ch].max(axis=0) - traj[:, cont_ch].min(axis=0)
+            coverages.extend((obs_span / np.where(ch_span > 0, ch_span, 1.0)).tolist())
+        coverages = np.array(coverages)
+        median_cov = float(np.median(coverages)) if coverages.size else 0.0
+        _check(f"compose[{regime}]: median per-episode range coverage on continuous "
+               f"channels >= 25% (across {len(COMPOSE_SEEDS)} seeds)",
+               median_cov >= 0.25, f"median={median_cov:.2f}")
+
+    # ---------------------------------------------------------------------------------
+    # 11. range_sweep: sweep() actually reaches BOTH true extremes, given the duration
+    #     excitation.config.range_sweep_duration_s() computes for it -- this is the one
+    #     load-bearing guarantee the whole regime exists for, unlike the other continuous
+    #     families' merely-statistical coverage (check #9 above).
+    # ---------------------------------------------------------------------------------
+    acts = joints["actuator_order"]
+    eff_limits = ecfg.effective_command_limits()
+    for ch in range(n):
+        eff_lo, eff_up = eff_limits
+        dur = ecfg.range_sweep_duration_s(ch)
+        traj = gen.sweep(dur, eff_limits, rng_seed=0, channels=[ch])
+        reached_lower = np.isclose(traj[:, ch].min(), eff_lo[ch], atol=1e-6)
+        reached_upper = np.isclose(traj[:, ch].max(), eff_up[ch], atol=1e-6)
+        _check(f"sweep reaches both extremes: {acts[ch]}",
+               reached_lower and reached_upper,
+               f"min={traj[:, ch].min():.4f} (want {eff_lo[ch]:.4f}), "
+               f"max={traj[:, ch].max():.4f} (want {eff_up[ch]:.4f})")
+
+    # Same guarantee through the REAL production path (compose_episode + rate_limit's
+    # re-clip, not the raw generator) -- and confirms the other 12 channels genuinely
+    # never move (single_joint's whole isolation premise) while the active one sweeps.
+    eff_lower, eff_upper = ecfg.effective_command_limits()
+    range_sweep_families = ecfg.REGIME_FAMILIES["range_sweep"]
+    for ch in (0, n // 2, n - 1):
+        start_pose = 0.5 * (eff_lower + eff_upper)
+        dur = ecfg.range_sweep_duration_s(ch)
+        traj, _events, info = compose.compose_episode(
+            "range_sweep", list(range_sweep_families.keys()), range_sweep_families,
+            rng_seed=5, duration_s=dur, active_channels=[ch], inactive_value=start_pose)
+        reached = (np.isclose(traj[:, ch].min(), eff_lower[ch], atol=1e-3)
+                   and np.isclose(traj[:, ch].max(), eff_upper[ch], atol=1e-3))
+        _check(f"compose[range_sweep]: {acts[ch]} reaches both extremes",
+               reached, f"min={traj[:, ch].min():.4f}/{eff_lower[ch]:.4f}, "
+                        f"max={traj[:, ch].max():.4f}/{eff_upper[ch]:.4f}")
+        other = [i for i in range(n) if i != ch]
+        held_span = (traj[:, other].max(axis=0) - traj[:, other].min(axis=0)).max()
+        _check(f"compose[range_sweep]: all other channels stay fixed while {acts[ch]} sweeps",
+               held_span < 1e-6, f"max span among held channels={held_span:.6f}")
+
+    # ---------------------------------------------------------------------------------
+    # 12. randomized_start_pose(): stays within limits, deterministic per seed, and
+    #     actually varies episode-to-episode (the point of adding it -- previously every
+    #     episode reset to the exact same fixed home_pose_actuator()).
+    # ---------------------------------------------------------------------------------
+    poses = [ecfg.randomized_start_pose(s) for s in range(20)]
+    within_limits = all(bool(np.all((p >= lower - eps) & (p <= upper + eps))) for p in poses)
+    _check("randomized_start_pose: within command_limits (20 seeds)", within_limits)
+
+    repeat = ecfg.randomized_start_pose(0)
+    _check("randomized_start_pose: deterministic for the same seed",
+           bool(np.array_equal(poses[0], repeat)))
+
+    per_joint_std = np.std(np.stack(poses), axis=0)
+    _check("randomized_start_pose: varies per joint across seeds (not the fixed pose every time)",
+           bool(np.all(per_joint_std > 1e-4)), f"min std={per_joint_std.min():.6f}")
+
+    # ---------------------------------------------------------------------------------
+    # 10. Plots (best-effort, not fatal)
     # ---------------------------------------------------------------------------------
     n_plots = 0
     if _HAVE_MPL:

@@ -35,6 +35,22 @@ import compose  # noqa: E402
 REGIMES = list(ecfg.REGIME_FAMILIES.keys())
 
 
+def _resolve_joint(joint_arg: str, acts: list[str]) -> int:
+    """--joint accepts an exact actuator name (e.g. rh_FFJ3) or a numeric index into
+    actuator_order (0-12)."""
+    if joint_arg in acts:
+        return acts.index(joint_arg)
+    try:
+        idx = int(joint_arg)
+    except ValueError:
+        raise SystemExit(f"--joint {joint_arg!r} not recognized. Use an exact actuator "
+                          f"name or an index 0-{len(acts) - 1}. actuator_order: {acts}")
+    if not (0 <= idx < len(acts)):
+        raise SystemExit(f"--joint index {idx} out of range 0-{len(acts) - 1}. "
+                          f"actuator_order: {acts}")
+    return idx
+
+
 def _print_schedule(regime: str, traj: np.ndarray, step_events: list[dict], info: dict,
                      rate: float) -> None:
     joints = cl.load_joints()
@@ -44,6 +60,8 @@ def _print_schedule(regime: str, traj: np.ndarray, step_events: list[dict], info
     print(f"families={info['families']}  family_seeds={info['family_seeds']}")
     print(f"steps_channels={[acts[i] for i in info['steps_channels']]}")
     print(f"continuous_channels={[acts[i] for i in info['continuous_channels']]}")
+    for f, idxs in info.get("continuous_family_channels", {}).items():
+        print(f"  {f}: {[acts[i] for i in idxs]}")
     print(f"max_delta_rad={info['max_delta_rad']:.4f}")
     print(f"n_step_events={len(step_events)}")
     for e in step_events[:10]:
@@ -56,17 +74,48 @@ def _print_schedule(regime: str, traj: np.ndarray, step_events: list[dict], info
 def _build_episode(args) -> tuple[np.ndarray, list[dict], dict]:
     families_weights = ecfg.REGIME_FAMILIES[args.regime]
     seed = args.seed if args.seed is not None else int(np.random.SeedSequence().entropy % (2**31 - 1))
-    # Drawn from a Generator seeded with `seed` (not args.duration's own separate RNG
-    # state) so the same --seed reproduces the same duration_s too -- see
-    # excitation/config.py:DURATION_RANGE_S. A fresh Generator here doesn't consume any
-    # of compose_episode()'s own internal rng_seed-derived draws (it creates its own),
-    # so this doesn't perturb channel allocation / family_seeds / max_delta reproducibility.
-    duration_s = args.duration or float(np.random.default_rng(seed).uniform(*ecfg.DURATION_RANGE_S))
+
+    # This episode's actual pre-trajectory reset/settle pose -- home_pose_actuator()
+    # jittered per joint (excitation.config.START_POSE_JITTER_FRAC), NOT the same fixed
+    # pose every episode. Deterministic from `seed` via its own Generator instance, so it
+    # doesn't consume/perturb compose_episode()'s own internal rng_seed-derived draws.
+    start_pose = ecfg.randomized_start_pose(seed)
+
+    active_channels = None
+    inactive_value = None
+    if args.joint is not None:
+        acts = cl.load_joints()["actuator_order"]
+        active_channels = [_resolve_joint(args.joint, acts)]
+        # Held channels stay at THIS episode's start_pose, not the generic joint midpoint
+        # -- every episode already resets+settles there before this trajectory starts
+        # (see main()'s HOME_SETTLE_S step), so this means those joints genuinely don't
+        # move at all for the whole episode, not just "hold some arbitrary point".
+        inactive_value = start_pose
+    elif args.regime == "range_sweep":
+        raise SystemExit("--regime range_sweep requires --joint -- it's a per-actuator "
+                          "full-range sweep; use scripts/collect_dataset.sh's auto-cycling "
+                          "to cover all 13 actuators across episodes.")
+
+    if args.regime == "range_sweep":
+        # NOT the usual random DURATION_RANGE_S draw -- a random duration could be too
+        # short to safely reach the true extreme, silently truncating the sweep. See
+        # excitation/config.py:range_sweep_duration_s().
+        duration_s = args.duration or ecfg.range_sweep_duration_s(active_channels[0])
+    else:
+        # Drawn from a Generator seeded with `seed` (not args.duration's own separate RNG
+        # state) so the same --seed reproduces the same duration_s too -- see
+        # excitation/config.py:DURATION_RANGE_S. A fresh Generator here doesn't consume any
+        # of compose_episode()'s own internal rng_seed-derived draws (it creates its own),
+        # so this doesn't perturb channel allocation / family_seeds / max_delta reproducibility.
+        duration_s = args.duration or float(np.random.default_rng(seed).uniform(*ecfg.DURATION_RANGE_S))
+
     traj, step_events, info = compose.compose_episode(
         args.regime, list(families_weights.keys()), families_weights,
-        rng_seed=seed, duration_s=duration_s, rate=ecfg.PUBLISH_RATE_HZ)
+        rng_seed=seed, duration_s=duration_s, rate=ecfg.PUBLISH_RATE_HZ,
+        active_channels=active_channels, inactive_value=inactive_value)
     info["rng_seed"] = seed
     info["duration_s"] = duration_s
+    info["start_pose"] = start_pose
     return traj, step_events, info
 
 
@@ -117,6 +166,18 @@ def _append_meta(meta_path: pathlib.Path, traj: np.ndarray, step_events: list[di
         "command_space": "actuator_order",  # radians, raw to /command, no 2x multiplier
         "publish_rate_hz": rate,
         "max_delta_rad": info["max_delta_rad"],
+        # Which continuous family (ou_walk/multisine/chirp) exclusively owns each
+        # channel this episode, and the per-channel anchor point they oscillate
+        # around -- both randomized per episode, see excitation/compose.py.
+        "continuous_family_channels": {
+            f: [acts[i] for i in idxs]
+            for f, idxs in info.get("continuous_family_channels", {}).items()
+        },
+        "center": dict(zip(acts, info.get("center", []))),
+        # Set when --joint restricted this episode to one actuator (e.g. single_joint
+        # regime); None for a normal multi-joint episode.
+        "target_joint": (acts[info["active_channels"][0]]
+                          if info.get("active_channels") else None),
         "loop_jitter_ms": play_result["jitter_ms"],
         "loop_overruns": play_result["overruns"],
         "per_channel_delta_max": dict(zip(acts, info["per_channel_delta_max"])),
@@ -127,11 +188,16 @@ def _append_meta(meta_path: pathlib.Path, traj: np.ndarray, step_events: list[di
             for e in step_events
         ],
         "native_rates_hz": ecfg.NATIVE_RATES_HZ,
-        # Every episode resets to this pose and settles for home_settle_s before playing
-        # -- see excitation/config.py:home_pose_actuator() for the policy->actuator
-        # conversion (coupled joints x2, confirmed convention; clipped to
-        # effective_command_limits()).
+        # The canonical baoding-ball reference pose (policy->actuator conversion, coupled
+        # joints x2, confirmed convention; clipped to effective_command_limits()) -- NOT
+        # what this episode actually reset to, see episode_start_pose below.
         "home_pose_actuator": dict(zip(acts, ecfg.home_pose_actuator().tolist())),
+        # What this episode ACTUALLY reset to and settled at for home_settle_s before
+        # playing: home_pose_actuator() jittered per joint by up to
+        # +-start_pose_jitter_frac of that joint's span (excitation/config.py:
+        # randomized_start_pose()) -- different every episode by design.
+        "episode_start_pose": dict(zip(acts, info["start_pose"].tolist())),
+        "start_pose_jitter_frac": ecfg.START_POSE_JITTER_FRAC,
         "home_settle_s": ecfg.HOME_SETTLE_S,
         # Snapshot taken right after the home-settle hold, before play() starts (see
         # publisher.read_current_setpoint_gap): a large max_gap_rad here means the
@@ -154,6 +220,13 @@ def main() -> int:
     ap.add_argument("--duration", type=float, default=None,
                      help="default: random, uniform in excitation.config.DURATION_RANGE_S "
                           "(seeded off --seed, so the draw is reproducible)")
+    ap.add_argument("--joint", default=None,
+                     help="restrict this episode to ONE actuator (exact name e.g. "
+                          "rh_FFJ3, or an index 0-12 into actuator_order) -- every "
+                          "other joint stays fixed at this episode's start pose for the "
+                          "whole episode. Works with any regime, not just single_joint / "
+                          "range_sweep (which are the regimes designed around it, see "
+                          "config.py) -- range_sweep REQUIRES it.")
     ap.add_argument("--dry-run", action="store_true",
                      help="compose + print the schedule only, no ROS/rosbag")
     args = ap.parse_args()
@@ -189,8 +262,9 @@ def main() -> int:
     pubs = publisher.create_publishers()
     rospy.sleep(0.5)  # let publishers connect
 
-    home_pose = ecfg.home_pose_actuator()
-    print(f"resetting to baoding-ball home pose, settling {ecfg.HOME_SETTLE_S:.1f}s ...")
+    home_pose = info["start_pose"]
+    print(f"resetting to this episode's start pose (baoding-ball jittered "
+          f"+-{ecfg.START_POSE_JITTER_FRAC:.0%}), settling {ecfg.HOME_SETTLE_S:.1f}s ...")
     publisher.hold(pubs, home_pose, ecfg.HOME_SETTLE_S, rate)
 
     print("reading current actuator pose ...")

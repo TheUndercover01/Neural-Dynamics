@@ -1,0 +1,190 @@
+{
+  "session_id": "free_space_continous_50",
+  "episode_id": "ep_free_space_continuous_041",
+  "timestamp": "20260712_145030",
+  "bag": "ep_free_space_continuous_041_20260712_145030.bag",
+  "duration_sec": 101,
+  "excitation": "free_space",
+  "control_mode": "PWM",
+  "warmup": "warm",
+  "driver_version": "unknown",
+  "operator_notes": "",
+  "ros_master_uri": "http://localhost:11311",
+  "recorded_topics": [
+    "/joint_states",
+    "/shadow_touchlab_translator/calibrated",
+    "/sh_rh_ffj0_position_controller/state",
+    "/sh_rh_ffj3_position_controller/state",
+    "/sh_rh_ffj4_position_controller/state",
+    "/sh_rh_mfj0_position_controller/state",
+    "/sh_rh_mfj3_position_controller/state",
+    "/sh_rh_mfj4_position_controller/state",
+    "/sh_rh_rfj0_position_controller/state",
+    "/sh_rh_rfj3_position_controller/state",
+    "/sh_rh_rfj4_position_controller/state",
+    "/sh_rh_thj1_position_controller/state",
+    "/sh_rh_thj2_position_controller/state",
+    "/sh_rh_thj4_position_controller/state",
+    "/sh_rh_thj5_position_controller/state",
+    "/diagnostics"
+  ],
+  "regime": "free_space_continuous",
+  "families": [
+    "ou_walk",
+    "multisine",
+    "chirp"
+  ],
+  "rng_seed": 2129421389,
+  "duration_s": 89.67145580717116,
+  "family_seeds": {
+    "ou_walk": 1032863048,
+    "multisine": 1406393797,
+    "chirp": 1505278706
+  },
+  "command_space": "actuator_order",
+  "publish_rate_hz": 60.0,
+  "max_delta_rad": 0.09091884675972565,
+  "continuous_family_channels": {
+    "ou_walk": [
+      "rh_FFJ0",
+      "rh_FFJ3",
+      "rh_RFJ0",
+      "rh_RFJ4",
+      "rh_THJ1"
+    ],
+    "multisine": [
+      "rh_MFJ0",
+      "rh_MFJ3",
+      "rh_MFJ4",
+      "rh_THJ2"
+    ],
+    "chirp": [
+      "rh_FFJ4",
+      "rh_RFJ3",
+      "rh_THJ4",
+      "rh_THJ5"
+    ]
+  },
+  "center": {
+    "rh_FFJ0": 0.941871505650682,
+    "rh_FFJ3": 0.9748722758220534,
+    "rh_FFJ4": -0.18698469695553052,
+    "rh_MFJ0": 1.624587573583425,
+    "rh_MFJ3": 0.09917046894180553,
+    "rh_MFJ4": -0.12131929989839413,
+    "rh_RFJ0": 2.378852219534161,
+    "rh_RFJ3": 0.6648873406671032,
+    "rh_RFJ4": 0.001911296566405818,
+    "rh_THJ1": 0.6425875776138215,
+    "rh_THJ2": 0.34489103458270454,
+    "rh_THJ4": 0.7353943440234288,
+    "rh_THJ5": 0.4227893827367484
+  },
+  "loop_jitter_ms": {
+    "mean": 0.10488276048140092,
+    "p50": 0.08320808410644531,
+    "p95": 0.17642974853515625,
+    "max": 2.325773239135742
+  },
+  "loop_overruns": 5500,
+  "per_channel_delta_max": {
+    "rh_FFJ0": 0.06500000000000017,
+    "rh_FFJ3": 0.06500000000000006,
+    "rh_FFJ4": 0.04794914554809704,
+    "rh_MFJ0": 0.052275570239590285,
+    "rh_MFJ3": 0.025667488920112974,
+    "rh_MFJ4": 0.013846312711014164,
+    "rh_RFJ0": 0.06500000000000017,
+    "rh_RFJ3": 0.06477913113817035,
+    "rh_RFJ4": 0.04279623522777792,
+    "rh_THJ1": 0.06500000000000006,
+    "rh_THJ2": 0.0352000933957638,
+    "rh_THJ4": 0.06473132953546046,
+    "rh_THJ5": 0.06442539465014208
+  },
+  "per_channel_delta_p95": {
+    "rh_FFJ0": 0.065,
+    "rh_FFJ3": 0.05595675313700311,
+    "rh_FFJ4": 0.03953239573468122,
+    "rh_MFJ0": 0.04237524531759077,
+    "rh_MFJ3": 0.020603120074239815,
+    "rh_MFJ4": 0.01177770116082628,
+    "rh_RFJ0": 0.06499999999999995,
+    "rh_RFJ3": 0.053231137802127834,
+    "rh_RFJ4": 0.021611669915023876,
+    "rh_THJ1": 0.03557008899517605,
+    "rh_THJ2": 0.02995624496822949,
+    "rh_THJ4": 0.05313378033560848,
+    "rh_THJ5": 0.05292345861218617
+  },
+  "step_events": [],
+  "native_rates_hz": {
+    "joint_states": 125,
+    "controller_state": 87,
+    "diagnostics": 2
+  },
+  "home_pose_actuator": {
+    "rh_FFJ0": 1.74,
+    "rh_FFJ3": 0.65,
+    "rh_FFJ4": -0.33513600000000004,
+    "rh_MFJ0": 1.74,
+    "rh_MFJ3": 0.65,
+    "rh_MFJ4": 0.0,
+    "rh_RFJ0": 1.74,
+    "rh_RFJ3": 0.65,
+    "rh_RFJ4": -0.33513600000000004,
+    "rh_THJ1": 0.0,
+    "rh_THJ2": 0.35,
+    "rh_THJ4": 0.5,
+    "rh_THJ5": 0.4
+  },
+  "home_settle_s": 4.0,
+  "pre_episode_setpoint_gap": {
+    "process_value": {
+      "rh_FFJ0": 1.7393562388302082,
+      "rh_FFJ3": 0.6501041334523353,
+      "rh_FFJ4": -0.3316202553635079,
+      "rh_MFJ0": 1.7448745431731079,
+      "rh_MFJ3": 0.6473714004145664,
+      "rh_MFJ4": 0.00833875471718216,
+      "rh_RFJ0": 1.737488100294473,
+      "rh_RFJ3": 0.6570990795556848,
+      "rh_RFJ4": -0.33667489170225856,
+      "rh_THJ1": 0.00896652993327573,
+      "rh_THJ2": 0.3443986971687914,
+      "rh_THJ4": 0.5028835994748111,
+      "rh_THJ5": 0.4060220882028132
+    },
+    "set_point": {
+      "rh_FFJ0": 1.74,
+      "rh_FFJ3": 0.65,
+      "rh_FFJ4": -0.33513600000000004,
+      "rh_MFJ0": 1.74,
+      "rh_MFJ3": 0.65,
+      "rh_MFJ4": 0.0,
+      "rh_RFJ0": 1.74,
+      "rh_RFJ3": 0.65,
+      "rh_RFJ4": -0.33513600000000004,
+      "rh_THJ1": 0.0,
+      "rh_THJ2": 0.35,
+      "rh_THJ4": 0.5,
+      "rh_THJ5": 0.4
+    },
+    "gap": {
+      "rh_FFJ0": 0.0006437611697918122,
+      "rh_FFJ3": 0.00010413345233528659,
+      "rh_FFJ4": 0.003515744636492124,
+      "rh_MFJ0": 0.00487454317310787,
+      "rh_MFJ3": 0.0026285995854335997,
+      "rh_MFJ4": 0.00833875471718216,
+      "rh_RFJ0": 0.002511899705526899,
+      "rh_RFJ3": 0.007099079555684784,
+      "rh_RFJ4": 0.0015388917022585158,
+      "rh_THJ1": 0.00896652993327573,
+      "rh_THJ2": 0.005601302831208577,
+      "rh_THJ4": 0.002883599474811094,
+      "rh_THJ5": 0.006022088202813192
+    },
+    "max_gap_rad": 0.00896652993327573
+  }
+}
